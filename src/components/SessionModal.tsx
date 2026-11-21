@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Server, X, FolderOpen, Upload } from "lucide-react";
+import {
+  Server,
+  X,
+  FolderOpen,
+  Upload,
+  KeyRound,
+  ShieldCheck,
+  CheckCircle2,
+} from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import {
@@ -34,6 +42,8 @@ export function SessionModal({
   const existingLinkedCred = session?.credential_id
     ? credentials.find((c) => c.id === session.credential_id) ?? null
     : null;
+  const editingPrivateCred =
+    existingLinkedCred && !existingLinkedCred.reusable ? existingLinkedCred : null;
 
   const initialAuthMode: SessionAuthMode = existingLinkedCred
     ? existingLinkedCred.reusable
@@ -59,20 +69,19 @@ export function SessionModal({
     existingLinkedCred?.reusable ? existingLinkedCred.id : ""
   );
   const [manualUsername, setManualUsername] = useState(
-    existingLinkedCred && !existingLinkedCred.reusable
-      ? existingLinkedCred.username
-      : ""
+    editingPrivateCred ? editingPrivateCred.username : ""
   );
   const [manualAuthType, setManualAuthType] = useState<AuthType>(
-    existingLinkedCred && !existingLinkedCred.reusable
-      ? existingLinkedCred.auth_type
-      : "password"
+    editingPrivateCred ? editingPrivateCred.auth_type : "password"
   );
   const [manualPassword, setManualPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState<boolean>(
+    editingPrivateCred ? editingPrivateCred.has_secret : true
+  );
   const [manualPrivateKey, setManualPrivateKey] = useState("");
   const [manualPassphrase, setManualPassphrase] = useState("");
-  const [saveAsReusable, setSaveAsReusable] = useState(false);
-  const [reusableAlias, setReusableAlias] = useState("");
+  const [promoting, setPromoting] = useState(false);
+  const [promotedNotice, setPromotedNotice] = useState<string | null>(null);
 
   const [remotePath, setRemotePath] = useState(session?.remote_initial_path ?? "");
   const [localPath, setLocalPath] = useState(session?.local_initial_path ?? "");
@@ -114,6 +123,52 @@ export function SessionModal({
     reader.readAsText(file);
   };
 
+  const handlePromoteToReusable = async () => {
+    setError(null);
+    setPromotedNotice(null);
+    setPromoting(true);
+    try {
+      const alias =
+        name.trim() ||
+        (manualUsername.trim() && host.trim()
+          ? `${manualUsername.trim()}@${host.trim()}`
+          : manualUsername.trim() || host.trim() || "Credential");
+
+      const keepExisting =
+        !!editingPrivateCred &&
+        editingPrivateCred.auth_type === manualAuthType &&
+        ((manualAuthType === "password" && rememberPassword && !manualPassword) ||
+          (manualAuthType === "ssh_key" && !manualPrivateKey && !manualPassphrase));
+
+      const credPayload = {
+        name: alias,
+        username: manualUsername.trim(),
+        auth_type: manualAuthType,
+        password:
+          manualAuthType === "password" && rememberPassword
+            ? manualPassword
+            : undefined,
+        private_key: manualAuthType === "ssh_key" ? manualPrivateKey : undefined,
+        passphrase: manualAuthType === "ssh_key" ? manualPassphrase : undefined,
+        keep_existing_secret: keepExisting,
+        reusable: true,
+      };
+
+      const savedCred = editingPrivateCred
+        ? await api.updateCredential(editingPrivateCred.id, credPayload)
+        : await api.createCredential(credPayload);
+
+      await refreshVaultData();
+      setCredentialId(savedCred.id);
+      setAuthMode("reusable");
+      setPromotedNotice(t("session.promoted_success"));
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setPromoting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent, connectAfter = false) => {
     e.preventDefault();
     setError(null);
@@ -143,36 +198,36 @@ export function SessionModal({
     setSaving(true);
     try {
       let finalCredentialId: string | null = null;
-      const oldPrivateCredId =
-        existingLinkedCred && !existingLinkedCred.reusable
-          ? existingLinkedCred.id
-          : null;
+      const oldPrivateCredId = editingPrivateCred ? editingPrivateCred.id : null;
 
       if (authMode === "reusable") {
         finalCredentialId = credentialId || null;
       } else if (authMode === "manual") {
-        const isUpdatingPrivate =
-          !!oldPrivateCredId && !saveAsReusable;
         const keepExisting =
-          isUpdatingPrivate &&
-          existingLinkedCred!.auth_type === manualAuthType &&
-          ((manualAuthType === "password" && !manualPassword) ||
-            (manualAuthType === "ssh_key" && !manualPrivateKey && !manualPassphrase));
+          !!editingPrivateCred &&
+          editingPrivateCred.auth_type === manualAuthType &&
+          ((manualAuthType === "password" &&
+            rememberPassword &&
+            !manualPassword) ||
+            (manualAuthType === "ssh_key" &&
+              !manualPrivateKey &&
+              !manualPassphrase));
 
         const credPayload = {
-          name: saveAsReusable
-            ? reusableAlias.trim() || `${name.trim() || host.trim()} (${manualUsername || "user"})`
-            : `[session] ${name.trim() || host.trim()}`,
+          name: `[session] ${name.trim() || host.trim()}`,
           username: manualUsername.trim(),
           auth_type: manualAuthType,
-          password: manualAuthType === "password" ? manualPassword : undefined,
+          password:
+            manualAuthType === "password" && rememberPassword
+              ? manualPassword
+              : undefined,
           private_key: manualAuthType === "ssh_key" ? manualPrivateKey : undefined,
           passphrase: manualAuthType === "ssh_key" ? manualPassphrase : undefined,
           keep_existing_secret: keepExisting,
-          reusable: saveAsReusable,
+          reusable: false,
         };
 
-        if (isUpdatingPrivate && oldPrivateCredId) {
+        if (oldPrivateCredId) {
           const updated = await api.updateCredential(oldPrivateCredId, credPayload);
           finalCredentialId = updated.id;
         } else {
@@ -221,8 +276,6 @@ export function SessionModal({
     protocol === "ftps_explicit" ||
     protocol === "ftps_implicit";
   const isFtps = protocol === "ftps_explicit" || protocol === "ftps_implicit";
-  const editingPrivateCred =
-    existingLinkedCred && !existingLinkedCred.reusable ? existingLinkedCred : null;
 
   const title =
     mode === "quick"
@@ -342,23 +395,53 @@ export function SessionModal({
               <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
                 {t("session.credential")}
               </label>
-              <div className="inline-flex rounded-lg bg-zinc-200/70 dark:bg-zinc-800 p-0.5 text-[11px]">
-                {(["manual", "reusable", "none"] as SessionAuthMode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setAuthMode(m)}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                      authMode === m
-                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                    }`}
-                  >
-                    {t(`session.auth_mode_${m}`)}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <div className="inline-flex rounded-lg bg-zinc-200/70 dark:bg-zinc-800 p-0.5 text-[11px]">
+                  {(["manual", "reusable", "none"] as SessionAuthMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setAuthMode(m);
+                        setPromotedNotice(null);
+                      }}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                        authMode === m
+                          ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                      }`}
+                    >
+                      {t(`session.auth_mode_${m}`)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Icon-only button with hover tooltip to promote manual -> reusable */}
+                {authMode === "manual" && mode !== "quick" && (
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      disabled={promoting}
+                      onClick={handlePromoteToReusable}
+                      aria-label={t("session.promote_to_reusable_tooltip")}
+                      className="p-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 text-zinc-600 dark:text-zinc-300 disabled:opacity-50 transition-colors cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-full mt-1.5 z-20 whitespace-nowrap rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[11px] font-medium px-2 py-1 shadow-lg">
+                      {t("session.promote_to_reusable_tooltip")}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {promotedNotice && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                {promotedNotice}
+              </div>
+            )}
 
             {authMode === "reusable" && (
               <select
@@ -413,19 +496,46 @@ export function SessionModal({
                 </div>
 
                 {manualAuthType === "password" && (
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                      {t("credentials.password")}
-                    </label>
-                    <input
-                      type="password"
-                      value={manualPassword}
-                      onChange={(e) => setManualPassword(e.target.value)}
-                      placeholder={
-                        editingPrivateCred ? t("credentials.keep_secret_hint") : ""
-                      }
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
+                  <div className="space-y-2">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                          {t("credentials.password")}
+                        </label>
+                        {editingPrivateCred?.has_secret && rememberPassword && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            {t("session.password_saved_badge")}
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="password"
+                        disabled={mode !== "quick" && !rememberPassword}
+                        value={manualPassword}
+                        onChange={(e) => setManualPassword(e.target.value)}
+                        placeholder={
+                          editingPrivateCred?.has_secret && rememberPassword
+                            ? `•••••••• (${t("credentials.keep_secret_hint")})`
+                            : ""
+                        }
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    {mode !== "quick" && (
+                      <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rememberPassword}
+                          onChange={(e) => {
+                            setRememberPassword(e.target.checked);
+                            if (!e.target.checked) setManualPassword("");
+                          }}
+                          className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        {t("session.remember_password")}
+                      </label>
+                    )}
                   </div>
                 )}
 
@@ -451,7 +561,7 @@ export function SessionModal({
                         value={manualPrivateKey}
                         onChange={(e) => setManualPrivateKey(e.target.value)}
                         placeholder={
-                          editingPrivateCred
+                          editingPrivateCred?.has_secret
                             ? t("credentials.keep_secret_hint")
                             : "-----BEGIN OPENSSH PRIVATE KEY-----"
                         }
@@ -467,34 +577,13 @@ export function SessionModal({
                         value={manualPassphrase}
                         onChange={(e) => setManualPassphrase(e.target.value)}
                         placeholder={
-                          editingPrivateCred ? t("credentials.keep_secret_hint") : ""
+                          editingPrivateCred?.has_passphrase
+                            ? t("credentials.keep_secret_hint")
+                            : ""
                         }
                         className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
-                  </div>
-                )}
-
-                {mode !== "quick" && (
-                  <div className="space-y-2 pt-1">
-                    <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={saveAsReusable}
-                        onChange={(e) => setSaveAsReusable(e.target.checked)}
-                        className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      {t("session.save_as_reusable")}
-                    </label>
-                    {saveAsReusable && (
-                      <input
-                        type="text"
-                        value={reusableAlias}
-                        onChange={(e) => setReusableAlias(e.target.value)}
-                        placeholder={t("session.reusable_alias")}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    )}
                   </div>
                 )}
               </div>
