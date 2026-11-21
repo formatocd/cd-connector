@@ -15,6 +15,7 @@ export interface CredentialSummary {
   auth_type: AuthType;
   has_secret: boolean;
   has_passphrase: boolean;
+  reusable: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +28,7 @@ export interface CredentialInput {
   private_key?: string;
   passphrase?: string;
   keep_existing_secret?: boolean;
+  reusable?: boolean;
 }
 
 export interface Folder {
@@ -108,6 +110,7 @@ export interface ImportPreviewCredential {
   auth_type: AuthType;
   has_secret: boolean;
   has_passphrase: boolean;
+  reusable: boolean;
   conflict_id: string | null;
   action: ImportAction;
 }

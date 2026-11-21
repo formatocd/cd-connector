@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Server, X, FolderOpen } from "lucide-react";
+import { Server, X, FolderOpen, Upload } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import {
   defaultPortForProtocol,
   extractErrorMessage,
+  type AuthType,
   type Protocol,
   type Session,
 } from "../types";
@@ -18,6 +19,8 @@ interface SessionModalProps {
   onClose: () => void;
 }
 
+type SessionAuthMode = "manual" | "reusable" | "none";
+
 export function SessionModal({
   mode,
   initialFolderId = null,
@@ -26,6 +29,19 @@ export function SessionModal({
 }: SessionModalProps) {
   const { t } = useTranslation();
   const { folders, credentials, refreshVaultData, openSessionTab } = useAppStore();
+
+  const reusableCredentials = credentials.filter((c) => c.reusable);
+  const existingLinkedCred = session?.credential_id
+    ? credentials.find((c) => c.id === session.credential_id) ?? null
+    : null;
+
+  const initialAuthMode: SessionAuthMode = existingLinkedCred
+    ? existingLinkedCred.reusable
+      ? "reusable"
+      : "manual"
+    : mode === "create" || mode === "quick"
+    ? "manual"
+    : "none";
 
   const [name, setName] = useState(session?.name ?? "");
   const [folderId, setFolderId] = useState<string>(
@@ -36,9 +52,28 @@ export function SessionModal({
   const [port, setPort] = useState<number>(
     session?.port ?? defaultPortForProtocol(session?.protocol ?? "sftp")
   );
+
+  // Auth state
+  const [authMode, setAuthMode] = useState<SessionAuthMode>(initialAuthMode);
   const [credentialId, setCredentialId] = useState<string>(
-    session?.credential_id ?? ""
+    existingLinkedCred?.reusable ? existingLinkedCred.id : ""
   );
+  const [manualUsername, setManualUsername] = useState(
+    existingLinkedCred && !existingLinkedCred.reusable
+      ? existingLinkedCred.username
+      : ""
+  );
+  const [manualAuthType, setManualAuthType] = useState<AuthType>(
+    existingLinkedCred && !existingLinkedCred.reusable
+      ? existingLinkedCred.auth_type
+      : "password"
+  );
+  const [manualPassword, setManualPassword] = useState("");
+  const [manualPrivateKey, setManualPrivateKey] = useState("");
+  const [manualPassphrase, setManualPassphrase] = useState("");
+  const [saveAsReusable, setSaveAsReusable] = useState(false);
+  const [reusableAlias, setReusableAlias] = useState("");
+
   const [remotePath, setRemotePath] = useState(session?.remote_initial_path ?? "");
   const [localPath, setLocalPath] = useState(session?.local_initial_path ?? "");
   const [passiveMode, setPassiveMode] = useState(session?.passive_mode ?? true);
@@ -67,6 +102,18 @@ export function SessionModal({
     }
   };
 
+  const handleLoadKeyFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setManualPrivateKey(reader.result);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent, connectAfter = false) => {
     e.preventDefault();
     setError(null);
@@ -77,7 +124,7 @@ export function SessionModal({
       const tempSession: Session = {
         id: `quick-${crypto.randomUUID()}`,
         folder_id: null,
-        credential_id: credentialId || null,
+        credential_id: authMode === "reusable" ? credentialId || null : null,
         name: name.trim() || host.trim(),
         protocol,
         host: host.trim(),
@@ -95,9 +142,48 @@ export function SessionModal({
 
     setSaving(true);
     try {
+      let finalCredentialId: string | null = null;
+      const oldPrivateCredId =
+        existingLinkedCred && !existingLinkedCred.reusable
+          ? existingLinkedCred.id
+          : null;
+
+      if (authMode === "reusable") {
+        finalCredentialId = credentialId || null;
+      } else if (authMode === "manual") {
+        const isUpdatingPrivate =
+          !!oldPrivateCredId && !saveAsReusable;
+        const keepExisting =
+          isUpdatingPrivate &&
+          existingLinkedCred!.auth_type === manualAuthType &&
+          ((manualAuthType === "password" && !manualPassword) ||
+            (manualAuthType === "ssh_key" && !manualPrivateKey && !manualPassphrase));
+
+        const credPayload = {
+          name: saveAsReusable
+            ? reusableAlias.trim() || `${name.trim() || host.trim()} (${manualUsername || "user"})`
+            : `[session] ${name.trim() || host.trim()}`,
+          username: manualUsername.trim(),
+          auth_type: manualAuthType,
+          password: manualAuthType === "password" ? manualPassword : undefined,
+          private_key: manualAuthType === "ssh_key" ? manualPrivateKey : undefined,
+          passphrase: manualAuthType === "ssh_key" ? manualPassphrase : undefined,
+          keep_existing_secret: keepExisting,
+          reusable: saveAsReusable,
+        };
+
+        if (isUpdatingPrivate && oldPrivateCredId) {
+          const updated = await api.updateCredential(oldPrivateCredId, credPayload);
+          finalCredentialId = updated.id;
+        } else {
+          const created = await api.createCredential(credPayload);
+          finalCredentialId = created.id;
+        }
+      }
+
       const input = {
         folder_id: folderId || null,
-        credential_id: credentialId || null,
+        credential_id: finalCredentialId,
         name: name.trim() || host.trim(),
         protocol,
         host: host.trim(),
@@ -112,6 +198,11 @@ export function SessionModal({
         mode === "edit" && session
           ? await api.updateSession(session.id, input)
           : await api.createSession(input);
+
+      // Clean up replaced private credential if user switched away from it
+      if (oldPrivateCredId && oldPrivateCredId !== finalCredentialId) {
+        await api.deleteCredential(oldPrivateCredId).catch(() => {});
+      }
 
       await refreshVaultData();
       if (connectAfter) {
@@ -130,6 +221,8 @@ export function SessionModal({
     protocol === "ftps_explicit" ||
     protocol === "ftps_implicit";
   const isFtps = protocol === "ftps_explicit" || protocol === "ftps_implicit";
+  const editingPrivateCred =
+    existingLinkedCred && !existingLinkedCred.reusable ? existingLinkedCred : null;
 
   const title =
     mode === "quick"
@@ -140,8 +233,8 @@ export function SessionModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+      <div className="w-full max-w-xl max-h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <Server className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -157,7 +250,10 @@ export function SessionModal({
           </button>
         </div>
 
-        <form onSubmit={(e) => handleSubmit(e, mode === "quick")} className="p-6 space-y-4">
+        <form
+          onSubmit={(e) => handleSubmit(e, mode === "quick")}
+          className="p-6 space-y-4 overflow-y-auto"
+        >
           {mode !== "quick" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -240,22 +336,169 @@ export function SessionModal({
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-              {t("session.credential")}
-            </label>
-            <select
-              value={credentialId}
-              onChange={(e) => setCredentialId(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">{t("session.credential_none")}</option>
-              {credentials.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.username || "—"})
-                </option>
-              ))}
-            </select>
+          {/* Authentication Section */}
+          <div className="space-y-3 p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {t("session.credential")}
+              </label>
+              <div className="inline-flex rounded-lg bg-zinc-200/70 dark:bg-zinc-800 p-0.5 text-[11px]">
+                {(["manual", "reusable", "none"] as SessionAuthMode[]).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setAuthMode(m)}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                      authMode === m
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t(`session.auth_mode_${m}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {authMode === "reusable" && (
+              <select
+                value={credentialId}
+                onChange={(e) => setCredentialId(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">{t("session.credential_select_placeholder")}</option>
+                {reusableCredentials.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.username || "—"})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {authMode === "none" && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {t("session.credential_none")}
+              </p>
+            )}
+
+            {authMode === "manual" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      {t("credentials.username")}
+                    </label>
+                    <input
+                      type="text"
+                      value={manualUsername}
+                      onChange={(e) => setManualUsername(e.target.value)}
+                      placeholder={t("credentials.username_placeholder")}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      {t("credentials.auth_type")}
+                    </label>
+                    <select
+                      value={manualAuthType}
+                      onChange={(e) => setManualAuthType(e.target.value as AuthType)}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="password">{t("credentials.type_password")}</option>
+                      <option value="ssh_key">{t("credentials.type_ssh_key")}</option>
+                      <option value="ssh_agent">{t("credentials.type_ssh_agent")}</option>
+                    </select>
+                  </div>
+                </div>
+
+                {manualAuthType === "password" && (
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      {t("credentials.password")}
+                    </label>
+                    <input
+                      type="password"
+                      value={manualPassword}
+                      onChange={(e) => setManualPassword(e.target.value)}
+                      placeholder={
+                        editingPrivateCred ? t("credentials.keep_secret_hint") : ""
+                      }
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
+
+                {manualAuthType === "ssh_key" && (
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                          {t("credentials.private_key")}
+                        </label>
+                        <label className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">
+                          <Upload className="w-3.5 h-3.5" />
+                          {t("credentials.load_key_file")}
+                          <input
+                            type="file"
+                            onChange={handleLoadKeyFile}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={manualPrivateKey}
+                        onChange={(e) => setManualPrivateKey(e.target.value)}
+                        placeholder={
+                          editingPrivateCred
+                            ? t("credentials.keep_secret_hint")
+                            : "-----BEGIN OPENSSH PRIVATE KEY-----"
+                        }
+                        className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        {t("credentials.passphrase")}
+                      </label>
+                      <input
+                        type="password"
+                        value={manualPassphrase}
+                        onChange={(e) => setManualPassphrase(e.target.value)}
+                        placeholder={
+                          editingPrivateCred ? t("credentials.keep_secret_hint") : ""
+                        }
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mode !== "quick" && (
+                  <div className="space-y-2 pt-1">
+                    <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={saveAsReusable}
+                        onChange={(e) => setSaveAsReusable(e.target.checked)}
+                        className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      {t("session.save_as_reusable")}
+                    </label>
+                    {saveAsReusable && (
+                      <input
+                        type="text"
+                        value={reusableAlias}
+                        onChange={(e) => setReusableAlias(e.target.value)}
+                        placeholder={t("session.reusable_alias")}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {protocol !== "ssh" && (

@@ -71,6 +71,10 @@ pub struct CredentialSecretPayload {
     pub tls_key: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialSummary {
     pub id: String,
@@ -79,6 +83,8 @@ pub struct CredentialSummary {
     pub auth_type: AuthType,
     pub has_secret: bool,
     pub has_passphrase: bool,
+    #[serde(default = "default_true")]
+    pub reusable: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -92,6 +98,7 @@ pub struct CredentialRow {
     pub encrypted_secret: Vec<u8>,
     pub nonce: Vec<u8>,
     pub has_passphrase: bool,
+    pub reusable: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -105,6 +112,7 @@ pub struct CredentialInput {
     pub private_key: Option<String>,
     pub passphrase: Option<String>,
     pub keep_existing_secret: Option<bool>,
+    pub reusable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +248,8 @@ pub struct ExportCredential {
     pub username: String,
     pub auth_type: AuthType,
     pub has_passphrase: bool,
+    #[serde(default = "default_true")]
+    pub reusable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_secret_b64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -303,6 +313,8 @@ pub struct ImportPreviewCredential {
     pub auth_type: AuthType,
     pub has_secret: bool,
     pub has_passphrase: bool,
+    #[serde(default = "default_true")]
+    pub reusable: bool,
     pub conflict_id: Option<String>,
     pub action: ImportAction,
 }

@@ -11,7 +11,8 @@ interface CredentialsModalProps {
 
 export function CredentialsModal({ onClose }: CredentialsModalProps) {
   const { t } = useTranslation();
-  const { credentials, refreshVaultData } = useAppStore();
+  const { credentials: allCredentials, refreshVaultData } = useAppStore();
+  const credentials = allCredentials.filter((c) => c.reusable);
 
   const [editing, setEditing] = useState<CredentialSummary | null>(null);
   const [creating, setCreating] = useState(false);

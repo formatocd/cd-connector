@@ -55,6 +55,7 @@ pub fn export_data(state: State<'_, AppState>) -> AppResult<String> {
             username: c.username,
             auth_type: c.auth_type,
             has_passphrase: c.has_passphrase,
+            reusable: c.reusable,
             encrypted_secret_b64: if encrypted {
                 Some(B64.encode(&c.encrypted_secret))
             } else {
@@ -193,6 +194,7 @@ pub fn preview_import(
                 auth_type: c.auth_type,
                 has_secret: c.encrypted_secret_b64.is_some() && c.nonce_b64.is_some(),
                 has_passphrase: c.has_passphrase,
+                reusable: c.reusable,
                 conflict_id,
                 action,
             }
@@ -393,6 +395,7 @@ pub fn commit_import(
                     encrypted_secret: ct,
                     nonce,
                     has_passphrase: payload.passphrase.is_some(),
+                    reusable: c.reusable,
                     created_at: now.clone(),
                     updated_at: now.clone(),
                 };
@@ -597,6 +600,7 @@ pub fn setup_from_json(
             encrypted_secret: ct,
             nonce,
             has_passphrase: payload.passphrase.is_some(),
+            reusable: c.reusable,
             created_at: now.clone(),
             updated_at: now.clone(),
         };

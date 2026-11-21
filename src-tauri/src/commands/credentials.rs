@@ -28,6 +28,7 @@ fn row_to_summary(row: &CredentialRow, key: &crypto::MasterKey) -> CredentialSum
         auth_type: row.auth_type,
         has_secret,
         has_passphrase: row.has_passphrase,
+        reusable: row.reusable,
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
     }
@@ -75,6 +76,7 @@ pub fn create_credential(
         encrypted_secret,
         nonce,
         has_passphrase,
+        reusable: input.reusable.unwrap_or(true),
         created_at: now.clone(),
         updated_at: now,
     };
@@ -136,6 +138,7 @@ pub fn update_credential(
         encrypted_secret,
         nonce,
         has_passphrase,
+        reusable: input.reusable.unwrap_or(existing.reusable),
         created_at: existing.created_at,
         updated_at: Utc::now().to_rfc3339(),
     };

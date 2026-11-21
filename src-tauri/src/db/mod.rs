@@ -24,6 +24,7 @@ pub fn init_db(db_path: &Path) -> AppResult<Connection> {
             encrypted_secret BLOB NOT NULL,
             nonce BLOB NOT NULL,
             has_passphrase INTEGER NOT NULL DEFAULT 0,
+            reusable INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -66,6 +67,22 @@ pub fn init_db(db_path: &Path) -> AppResult<Connection> {
         );
         ",
     )?;
+
+    // Safe migration for existing databases without `reusable` column
+    let has_reusable: bool = {
+        let mut stmt = conn.prepare("PRAGMA table_info(credentials)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        cols.iter().any(|c| c == "reusable")
+    };
+    if !has_reusable {
+        conn.execute(
+            "ALTER TABLE credentials ADD COLUMN reusable INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
+
     Ok(conn)
 }
 
@@ -176,7 +193,7 @@ pub fn save_app_config(conn: &Connection, cfg: &AppConfig) -> AppResult<()> {
 
 pub fn list_credential_rows(conn: &Connection) -> AppResult<Vec<CredentialRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, created_at, updated_at
+        "SELECT id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, reusable, created_at, updated_at
          FROM credentials ORDER BY name COLLATE NOCASE ASC",
     )?;
     let rows = stmt
@@ -191,8 +208,9 @@ pub fn list_credential_rows(conn: &Connection) -> AppResult<Vec<CredentialRow>> 
                 encrypted_secret: row.get(4)?,
                 nonce: row.get(5)?,
                 has_passphrase: row.get::<_, i64>(6)? != 0,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                reusable: row.get::<_, i64>(7)? != 0,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -202,7 +220,7 @@ pub fn list_credential_rows(conn: &Connection) -> AppResult<Vec<CredentialRow>> 
 pub fn get_credential_row(conn: &Connection, id: &str) -> AppResult<Option<CredentialRow>> {
     let row = conn
         .query_row(
-            "SELECT id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, created_at, updated_at
+            "SELECT id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, reusable, created_at, updated_at
              FROM credentials WHERE id = ?1",
             params![id],
             |row| {
@@ -216,8 +234,9 @@ pub fn get_credential_row(conn: &Connection, id: &str) -> AppResult<Option<Crede
                     encrypted_secret: row.get(4)?,
                     nonce: row.get(5)?,
                     has_passphrase: row.get::<_, i64>(6)? != 0,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    reusable: row.get::<_, i64>(7)? != 0,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             },
         )
@@ -227,8 +246,8 @@ pub fn get_credential_row(conn: &Connection, id: &str) -> AppResult<Option<Crede
 
 pub fn insert_credential(conn: &Connection, row: &CredentialRow) -> AppResult<()> {
     conn.execute(
-        "INSERT INTO credentials (id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO credentials (id, name, username, auth_type, encrypted_secret, nonce, has_passphrase, reusable, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             row.id,
             row.name,
@@ -237,6 +256,7 @@ pub fn insert_credential(conn: &Connection, row: &CredentialRow) -> AppResult<()
             row.encrypted_secret,
             row.nonce,
             if row.has_passphrase { 1 } else { 0 },
+            if row.reusable { 1 } else { 0 },
             row.created_at,
             row.updated_at
         ],
@@ -247,7 +267,7 @@ pub fn insert_credential(conn: &Connection, row: &CredentialRow) -> AppResult<()
 pub fn update_credential_row(conn: &Connection, row: &CredentialRow) -> AppResult<()> {
     let updated = conn.execute(
         "UPDATE credentials
-         SET name = ?2, username = ?3, auth_type = ?4, encrypted_secret = ?5, nonce = ?6, has_passphrase = ?7, updated_at = ?8
+         SET name = ?2, username = ?3, auth_type = ?4, encrypted_secret = ?5, nonce = ?6, has_passphrase = ?7, reusable = ?8, updated_at = ?9
          WHERE id = ?1",
         params![
             row.id,
@@ -257,6 +277,7 @@ pub fn update_credential_row(conn: &Connection, row: &CredentialRow) -> AppResul
             row.encrypted_secret,
             row.nonce,
             if row.has_passphrase { 1 } else { 0 },
+            if row.reusable { 1 } else { 0 },
             row.updated_at
         ],
     )?;
@@ -401,9 +422,25 @@ pub fn update_session(conn: &Connection, session: &Session) -> AppResult<()> {
 }
 
 pub fn delete_session(conn: &Connection, id: &str) -> AppResult<()> {
+    let cred_id: Option<String> = conn
+        .query_row(
+            "SELECT credential_id FROM sessions WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+
     let deleted = conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
     if deleted == 0 {
         return Err(AppError::NotFound(format!("Session {id}")));
+    }
+
+    if let Some(cid) = cred_id {
+        let _ = conn.execute(
+            "DELETE FROM credentials WHERE id = ?1 AND reusable = 0",
+            params![cid],
+        );
     }
     Ok(())
 }
