@@ -1,0 +1,92 @@
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  AppConfig,
+  CredentialInput,
+  CredentialSummary,
+  ExportSummary,
+  Folder,
+  FolderInput,
+  ImportCommitRequest,
+  ImportPreview,
+  ImportResult,
+  SecurityMode,
+  SecurityStatus,
+  Session,
+  SessionInput,
+} from "../types";
+
+export const api = {
+  // Security
+  getSecurityStatus: () => invoke<SecurityStatus>("get_security_status"),
+  setupSecurityMode: (mode: SecurityMode, masterPassword?: string) =>
+    invoke<SecurityStatus>("setup_security_mode", {
+      mode,
+      masterPassword: masterPassword ?? null,
+    }),
+  unlockVault: (password: string) =>
+    invoke<SecurityStatus>("unlock_vault", { password }),
+  lockVault: () => invoke<SecurityStatus>("lock_vault"),
+  changeSecurityMode: (
+    targetMode: SecurityMode,
+    currentPassword?: string,
+    newPassword?: string
+  ) =>
+    invoke<SecurityStatus>("change_security_mode", {
+      targetMode,
+      currentPassword: currentPassword ?? null,
+      newPassword: newPassword ?? null,
+    }),
+
+  // Credentials
+  listCredentials: () => invoke<CredentialSummary[]>("list_credentials"),
+  createCredential: (input: CredentialInput) =>
+    invoke<CredentialSummary>("create_credential", { input }),
+  updateCredential: (id: string, input: CredentialInput) =>
+    invoke<CredentialSummary>("update_credential", { id, input }),
+  deleteCredential: (id: string) => invoke<void>("delete_credential", { id }),
+
+  // Folders
+  listFolders: () => invoke<Folder[]>("list_folders"),
+  createFolder: (input: FolderInput) =>
+    invoke<Folder>("create_folder", { input }),
+  updateFolder: (id: string, input: FolderInput) =>
+    invoke<Folder>("update_folder", { id, input }),
+  deleteFolder: (id: string) => invoke<void>("delete_folder", { id }),
+
+  // Sessions
+  listSessions: () => invoke<Session[]>("list_sessions"),
+  createSession: (input: SessionInput) =>
+    invoke<Session>("create_session", { input }),
+  updateSession: (id: string, input: SessionInput) =>
+    invoke<Session>("update_session", { id, input }),
+  deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+
+  // Config
+  getAppConfig: () => invoke<AppConfig>("get_app_config"),
+  updateAppConfig: (config: AppConfig) =>
+    invoke<AppConfig>("update_app_config", { config }),
+
+  // Portability
+  exportData: () => invoke<string>("export_data"),
+  previewImport: (rawJson: string, importPassword?: string) =>
+    invoke<ImportPreview>("preview_import", {
+      rawJson,
+      importPassword: importPassword ?? null,
+    }),
+  commitImport: (request: ImportCommitRequest) =>
+    invoke<ImportResult>("commit_import", { request }),
+  inspectExportBundle: (rawJson: string) =>
+    invoke<ExportSummary>("inspect_export_bundle", { rawJson }),
+  setupFromJson: (
+    rawJson: string,
+    mode: SecurityMode,
+    importPassword?: string,
+    masterPassword?: string
+  ) =>
+    invoke<SecurityStatus>("setup_from_json", {
+      rawJson,
+      importPassword: importPassword ?? null,
+      mode,
+      masterPassword: masterPassword ?? null,
+    }),
+};

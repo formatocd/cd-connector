@@ -1,0 +1,29 @@
+[package]
+name = "cd-connector"
+version = "0.1.0"
+description = "Cross-platform FTP, FTPS, SFTP & SSH file transfer client"
+authors = ["Carlos Durán <formatocd>"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "cd_connector_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+argon2 = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+zeroize = { version = "1.8", features = ["derive"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
