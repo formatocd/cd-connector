@@ -1,0 +1,360 @@
+use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityMode {
+    MasterPassword,
+    Transparent,
+}
+
+impl SecurityMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SecurityMode::MasterPassword => "master_password",
+            SecurityMode::Transparent => "transparent",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "master_password" => Some(SecurityMode::MasterPassword),
+            "transparent" => Some(SecurityMode::Transparent),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityStatus {
+    pub initialized: bool,
+    pub mode: Option<SecurityMode>,
+    pub unlocked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthType {
+    Password,
+    SshKey,
+    SshAgent,
+    TlsCert,
+}
+
+impl AuthType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuthType::Password => "password",
+            AuthType::SshKey => "ssh_key",
+            AuthType::SshAgent => "ssh_agent",
+            AuthType::TlsCert => "tls_cert",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "password" => Some(AuthType::Password),
+            "ssh_key" => Some(AuthType::SshKey),
+            "ssh_agent" => Some(AuthType::SshAgent),
+            "tls_cert" => Some(AuthType::TlsCert),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct CredentialSecretPayload {
+    pub password: Option<String>,
+    pub private_key: Option<String>,
+    pub passphrase: Option<String>,
+    pub tls_cert: Option<String>,
+    pub tls_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialSummary {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub auth_type: AuthType,
+    pub has_secret: bool,
+    pub has_passphrase: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CredentialRow {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub auth_type: AuthType,
+    pub encrypted_secret: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub has_passphrase: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CredentialInput {
+    pub name: String,
+    pub username: String,
+    pub auth_type: AuthType,
+    pub password: Option<String>,
+    pub private_key: Option<String>,
+    pub passphrase: Option<String>,
+    pub keep_existing_secret: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Folder {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FolderInput {
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub sort_order: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Protocol {
+    Ftp,
+    FtpsExplicit,
+    FtpsImplicit,
+    Sftp,
+    Ssh,
+}
+
+impl Protocol {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Protocol::Ftp => "ftp",
+            Protocol::FtpsExplicit => "ftps_explicit",
+            Protocol::FtpsImplicit => "ftps_implicit",
+            Protocol::Sftp => "sftp",
+            Protocol::Ssh => "ssh",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "ftp" => Some(Protocol::Ftp),
+            "ftps_explicit" | "ftps" => Some(Protocol::FtpsExplicit),
+            "ftps_implicit" => Some(Protocol::FtpsImplicit),
+            "sftp" => Some(Protocol::Sftp),
+            "ssh" => Some(Protocol::Ssh),
+            _ => None,
+        }
+    }
+
+    pub fn default_port(&self) -> u16 {
+        match self {
+            Protocol::Ftp | Protocol::FtpsExplicit => 21,
+            Protocol::FtpsImplicit => 990,
+            Protocol::Sftp | Protocol::Ssh => 22,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub folder_id: Option<String>,
+    pub credential_id: Option<String>,
+    pub name: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: u16,
+    pub remote_initial_path: String,
+    pub local_initial_path: String,
+    pub passive_mode: bool,
+    pub accept_invalid_certs: bool,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionInput {
+    pub folder_id: Option<String>,
+    pub credential_id: Option<String>,
+    pub name: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: Option<u16>,
+    pub remote_initial_path: Option<String>,
+    pub local_initial_path: Option<String>,
+    pub passive_mode: Option<bool>,
+    pub accept_invalid_certs: Option<bool>,
+    pub sort_order: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub theme: String,
+    pub language: String,
+    pub max_concurrent_transfers: u32,
+    pub upload_limit_kbps: u64,
+    pub download_limit_kbps: u64,
+    pub ui_show_sidebar: bool,
+    pub ui_show_local_panel: bool,
+    pub ui_show_queue_panel: bool,
+    pub ui_show_command_panel: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            theme: "system".to_string(),
+            language: "es".to_string(),
+            max_concurrent_transfers: 3,
+            upload_limit_kbps: 0,
+            download_limit_kbps: 0,
+            ui_show_sidebar: true,
+            ui_show_local_panel: true,
+            ui_show_queue_panel: true,
+            ui_show_command_panel: true,
+        }
+    }
+}
+
+// --- Portability (Export / Import) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportFolder {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportCredential {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub auth_type: AuthType,
+    pub has_passphrase: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_secret_b64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce_b64: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportSession {
+    pub id: String,
+    pub folder_id: Option<String>,
+    pub credential_id: Option<String>,
+    pub name: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: u16,
+    pub remote_initial_path: String,
+    pub local_initial_path: String,
+    pub passive_mode: bool,
+    pub accept_invalid_certs: bool,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportBundle {
+    pub version: u32,
+    pub app: String,
+    pub exported_at: String,
+    pub encrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salt_b64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_token: Option<String>,
+    pub folders: Vec<ExportFolder>,
+    pub credentials: Vec<ExportCredential>,
+    pub sessions: Vec<ExportSession>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportAction {
+    Import,
+    Overwrite,
+    Skip,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportPreviewFolder {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: String,
+    pub sort_order: i64,
+    pub conflict_id: Option<String>,
+    pub action: ImportAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportPreviewCredential {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    pub auth_type: AuthType,
+    pub has_secret: bool,
+    pub has_passphrase: bool,
+    pub conflict_id: Option<String>,
+    pub action: ImportAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportPreviewSession {
+    pub id: String,
+    pub folder_id: Option<String>,
+    pub credential_id: Option<String>,
+    pub name: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: u16,
+    pub remote_initial_path: String,
+    pub local_initial_path: String,
+    pub passive_mode: bool,
+    pub accept_invalid_certs: bool,
+    pub sort_order: i64,
+    pub conflict_id: Option<String>,
+    pub action: ImportAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportPreview {
+    pub encrypted: bool,
+    pub folders: Vec<ImportPreviewFolder>,
+    pub credentials: Vec<ImportPreviewCredential>,
+    pub sessions: Vec<ImportPreviewSession>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportCommitRequest {
+    pub raw_json: String,
+    pub import_password: Option<String>,
+    pub folders: Vec<ImportPreviewFolder>,
+    pub credentials: Vec<ImportPreviewCredential>,
+    pub sessions: Vec<ImportPreviewSession>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub folders_imported: usize,
+    pub credentials_imported: usize,
+    pub sessions_imported: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportSummary {
+    pub encrypted: bool,
+    pub exported_at: String,
+    pub folders_count: usize,
+    pub credentials_count: usize,
+    pub sessions_count: usize,
+}
+
