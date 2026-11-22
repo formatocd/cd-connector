@@ -132,7 +132,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 pt-2">
               {t("settings.transfers")}
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   {t("settings.max_concurrent")}
