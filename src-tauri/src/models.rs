@@ -121,6 +121,8 @@ pub struct Folder {
     pub parent_id: Option<String>,
     pub name: String,
     pub sort_order: i64,
+    #[serde(default)]
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,6 +130,7 @@ pub struct FolderInput {
     pub parent_id: Option<String>,
     pub name: String,
     pub sort_order: Option<i64>,
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +188,10 @@ pub struct Session {
     pub passive_mode: bool,
     pub accept_invalid_certs: bool,
     pub sort_order: i64,
+    #[serde(default)]
+    pub icon_color: Option<String>,
+    #[serde(default)]
+    pub last_opened_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -200,6 +207,7 @@ pub struct SessionInput {
     pub passive_mode: Option<bool>,
     pub accept_invalid_certs: Option<bool>,
     pub sort_order: Option<i64>,
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,6 +225,8 @@ pub struct AppConfig {
     pub terminal_font_family: String,
     #[serde(default = "default_terminal_font_size")]
     pub terminal_font_size: u16,
+    #[serde(default = "default_true")]
+    pub terminal_copy_on_select: bool,
 }
 
 fn default_terminal_font_family() -> String {
@@ -241,11 +251,19 @@ impl Default for AppConfig {
             ui_show_command_panel: true,
             terminal_font_family: default_terminal_font_family(),
             terminal_font_size: default_terminal_font_size(),
+            terminal_copy_on_select: true,
         }
     }
 }
 
 // --- Portability (Export / Import) ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportOptions {
+    pub include_usernames: bool,
+    pub include_secrets: bool,
+    pub export_password: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportFolder {
@@ -253,6 +271,8 @@ pub struct ExportFolder {
     pub parent_id: Option<String>,
     pub name: String,
     pub sort_order: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,6 +304,8 @@ pub struct ExportSession {
     pub passive_mode: bool,
     pub accept_invalid_certs: bool,
     pub sort_order: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +337,8 @@ pub struct ImportPreviewFolder {
     pub parent_id: Option<String>,
     pub name: String,
     pub sort_order: i64,
+    #[serde(default)]
+    pub icon_color: Option<String>,
     pub conflict_id: Option<String>,
     pub action: ImportAction,
 }
@@ -347,6 +371,8 @@ pub struct ImportPreviewSession {
     pub passive_mode: bool,
     pub accept_invalid_certs: bool,
     pub sort_order: i64,
+    #[serde(default)]
+    pub icon_color: Option<String>,
     pub conflict_id: Option<String>,
     pub action: ImportAction,
 }

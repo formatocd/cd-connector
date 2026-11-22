@@ -54,7 +54,8 @@
     "credentials": "Credenciales",
     "import_export": "Importar / Exportar",
     "settings": "Ajustes",
-    "lock_vault": "Bloquear bóveda"
+    "lock_vault": "Bloquear bóveda",
+    "help": "Ayuda / Acerca de"
   },
   "sidebar": {
     "title": "Sesiones",
@@ -63,9 +64,11 @@
     "folder_name_placeholder": "Nombre de la carpeta",
     "empty": "Aún no tienes sesiones guardadas. Crea una sesión o carpeta para empezar.",
     "root_drop": "Soltar aquí para mover a la raíz",
-    "confirm_delete_folder": "¿Eliminar la carpeta \"{{name}}\"? Las subcarpetas se eliminarán y las sesiones pasarán a la raíz.",
+    "confirm_delete_folder": "¿Eliminar la carpeta \"{{name}}\"? Por defecto, su contenido subirá un nivel.",
+    "delete_folder_children": "Eliminar también todas las subcarpetas y sesiones contenidas",
     "confirm_delete_session": "¿Eliminar la sesión \"{{name}}\"?",
-    "connect": "Conectar"
+    "connect": "Conectar",
+    "icon_color": "Color del icono"
   },
   "credentials": {
     "title": "Gestor de Credenciales",
@@ -126,12 +129,16 @@
     "title": "Importar / Exportar Configuración",
     "export_tab": "Exportar",
     "import_tab": "Importar",
-    "export_mode_a_info": "Modo A activo: El archivo JSON incluirá tus carpetas, sesiones y credenciales cifradas con tu contraseña maestra.",
-    "export_mode_b_info": "Modo B activo: Por seguridad, el archivo JSON exportará carpetas, sesiones y metadatos de credenciales omitiendo por completo contraseñas y claves privadas.",
+    "export_desc": "Elige qué datos sensibles incluir en el JSON exportado. Si incluyes contraseñas o claves SSH, se cifrarán con una contraseña dedicada para este archivo (independiente de tu contraseña maestra).",
+    "export_include_usernames": "Incluir usuarios",
+    "export_include_secrets": "Incluir contraseñas y claves privadas SSH (cifradas)",
+    "export_password_label": "Contraseña de cifrado de la exportación",
+    "export_password_confirm": "Confirmar contraseña de exportación",
+    "export_password_placeholder": "Contraseña dedicada para este archivo (mín. 4 caracteres)",
     "export_button": "Descargar JSON de respaldo",
     "export_success": "Archivo exportado correctamente.",
     "import_select_file": "Seleccionar archivo JSON",
-    "import_password_needed": "Este archivo está cifrado. Introduce la contraseña maestra con la que fue exportado:",
+    "import_password_needed": "Este archivo está cifrado. Introduce la contraseña de cifrado con la que fue exportado:",
     "import_analyze": "Analizar archivo",
     "import_preview_title": "Vista previa de importación (puedes editar antes de guardar)",
     "import_conflicts_badge": "Conflicto detectado",
@@ -159,6 +166,7 @@
     "terminal": "Terminal SSH",
     "terminal_font_family": "Tipo de fuente (cualquier fuente monoespaciada / Nerd Font)",
     "terminal_font_size": "Tamaño de fuente (px)",
+    "terminal_copy_on_select": "Copiar automáticamente al seleccionar texto",
     "security": "Seguridad de la Bóveda",
     "current_mode": "Modo actual",
     "migrate_to_a": "Activar Contraseña Maestra (Modo A)",
@@ -234,7 +242,8 @@
     "ctx_download": "Descargar a local",
     "drop_to_upload": "Suelta aquí archivos o carpetas para subir",
     "drop_to_download": "Suelta aquí archivos o carpetas para descargar",
-    "open_ssh_here": "Abrir terminal SSH"
+    "open_ssh_here": "Abrir terminal SSH",
+    "ssh_disconnected_hint": "Pulsa [R] para reconectar o [Intro] para cerrar la pestaña..."
   },
   "queue": {
     "filter_all": "Todas",
@@ -288,5 +297,26 @@
     "title": "Autenticación requerida",
     "subtitle": "Introduce las credenciales para conectar a {{host}}:{{port}} (no se guardarán en la bóveda).",
     "anonymous_button": "Conectar como anónimo"
+  },
+  "home": {
+    "search_placeholder": "Buscar sesiones por nombre o host...",
+    "recent_title": "Últimas sesiones abiertas",
+    "results_title": "Sesiones encontradas",
+    "no_recent": "Aún no has abierto ninguna sesión. Selecciona una del panel lateral o usa Conexión rápida.",
+    "no_results": "No hay sesiones que coincidan con tu búsqueda."
+  },
+  "about": {
+    "title": "Acerca de CD Connector",
+    "version": "Versión",
+    "author": "Autor",
+    "license": "Licencia",
+    "repository": "Repositorio",
+    "protocols": "Protocolos soportados",
+    "shortcuts_title": "Atajos de teclado",
+    "sc_sidebar": "Mostrar/Ocultar sesiones",
+    "sc_local": "Mostrar/Ocultar explorador local",
+    "sc_console": "Mostrar/Ocultar consola",
+    "sc_queue": "Mostrar/Ocultar cola de transferencias",
+    "sc_terminal_cp": "Copiar / Pegar en terminal SSH"
   }
 }

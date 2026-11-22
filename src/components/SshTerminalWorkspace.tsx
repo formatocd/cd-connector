@@ -66,7 +66,7 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProps) {
   const { t } = useTranslation();
-  const { config, credentials } = useAppStore();
+  const { config, credentials, closeTab } = useAppStore();
   const { session, tabId, transientAuth } = tab;
 
   const [connState, setConnState] = useState<ConnectionState>("idle");
@@ -80,6 +80,22 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const connStateRef = useRef<ConnectionState>("idle");
+  const connectRef = useRef<() => void>(() => {});
+  const closeTabRef = useRef<() => void>(() => {});
+  const copyOnSelectRef = useRef<boolean>(config.terminal_copy_on_select);
+
+  useEffect(() => {
+    connStateRef.current = connState;
+  }, [connState]);
+
+  useEffect(() => {
+    closeTabRef.current = () => closeTab(tabId);
+  }, [closeTab, tabId]);
+
+  useEffect(() => {
+    copyOnSelectRef.current = config.terminal_copy_on_select;
+  }, [config.terminal_copy_on_select]);
 
   const linkedCred = session.credential_id
     ? credentials.find((c) => c.id === session.credential_id) ?? null
@@ -143,10 +159,15 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
         setConnState("error");
         setConnError(msg);
         term?.writeln(`\r\n\x1b[31m[Error] ${msg}\x1b[0m`);
+        term?.writeln(`\x1b[90m${t("workspace.ssh_disconnected_hint")}\x1b[0m`);
       }
     },
-    [tabId, session, runtimeAuth]
+    [tabId, session, runtimeAuth, t]
   );
+
+  useEffect(() => {
+    connectRef.current = () => connect();
+  }, [connect]);
 
   const handleDisconnect = async () => {
     await api.sshDisconnect(tabId).catch(() => {});
@@ -193,7 +214,25 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
       return true;
     });
 
+    const selectionDisposable = term.onSelectionChange(() => {
+      if (copyOnSelectRef.current && term.hasSelection()) {
+        const text = term.getSelection();
+        if (text) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+      }
+    });
+
     const dataDisposable = term.onData((data) => {
+      if (connStateRef.current === "disconnected" || connStateRef.current === "error") {
+        if (data === "r" || data === "R") {
+          term.writeln("");
+          connectRef.current();
+        } else if (data === "\r" || data === "\n") {
+          closeTabRef.current();
+        }
+        return;
+      }
       api.sshWrite(tabId, data).catch(() => {});
     });
 
@@ -211,13 +250,17 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     termRef.current = term;
     fitRef.current = fit;
 
-    term.writeln(
-      `\x1b[90mConnecting to ssh://${session.host}:${session.port}...\x1b[0m`
-    );
-    connect();
+    const connectTimer = window.setTimeout(() => {
+      term.writeln(
+        `\x1b[90mConnecting to ssh://${session.host}:${session.port}...\x1b[0m`
+      );
+      connect();
+    }, 0);
 
     return () => {
+      window.clearTimeout(connectTimer);
       resizeObserver.disconnect();
+      selectionDisposable.dispose();
       dataDisposable.dispose();
       term.dispose();
       termRef.current = null;
@@ -280,12 +323,16 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
       termRef.current?.writeln(
         `\r\n\x1b[33m[${event.payload.reason}]\x1b[0m`
       );
+      termRef.current?.writeln(
+        `\x1b[90m${t("workspace.ssh_disconnected_hint")}\x1b[0m`
+      );
+      termRef.current?.focus();
     });
     return () => {
       unlistenData.then((fn) => fn());
       unlistenClosed.then((fn) => fn());
     };
-  }, [tabId]);
+  }, [tabId, t]);
 
   return (
     <div className={`flex-1 min-h-0 flex flex-col ${isActive ? "" : "hidden"}`}>

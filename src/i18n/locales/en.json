@@ -54,7 +54,8 @@
     "credentials": "Credentials",
     "import_export": "Import / Export",
     "settings": "Settings",
-    "lock_vault": "Lock vault"
+    "lock_vault": "Lock vault",
+    "help": "Help / About"
   },
   "sidebar": {
     "title": "Sessions",
@@ -63,9 +64,11 @@
     "folder_name_placeholder": "Folder name",
     "empty": "No saved sessions yet. Create a session or folder to get started.",
     "root_drop": "Drop here to move to root",
-    "confirm_delete_folder": "Delete folder \"{{name}}\"? Subfolders will be deleted and sessions will move to root.",
+    "confirm_delete_folder": "Delete folder \"{{name}}\"? By default, its contents will move up one level.",
+    "delete_folder_children": "Also delete all subfolders and sessions inside",
     "confirm_delete_session": "Delete session \"{{name}}\"?",
-    "connect": "Connect"
+    "connect": "Connect",
+    "icon_color": "Icon color"
   },
   "credentials": {
     "title": "Credentials Manager",
@@ -126,12 +129,16 @@
     "title": "Import / Export Configuration",
     "export_tab": "Export",
     "import_tab": "Import",
-    "export_mode_a_info": "Mode A active: The JSON file will include your folders, sessions, and credentials encrypted with your master password.",
-    "export_mode_b_info": "Mode B active: For security, the JSON file exports folders, sessions, and credential metadata while omitting all passwords and private keys.",
+    "export_desc": "Choose which sensitive fields to include in the JSON export. If you include passwords or SSH keys, they will be encrypted with a dedicated password for this file (independent of your master password).",
+    "export_include_usernames": "Include usernames",
+    "export_include_secrets": "Include passwords & SSH private keys (encrypted)",
+    "export_password_label": "Export encryption password",
+    "export_password_confirm": "Confirm export password",
+    "export_password_placeholder": "Dedicated password for this backup file (min. 4 chars)",
     "export_button": "Download backup JSON",
     "export_success": "Configuration exported successfully.",
     "import_select_file": "Select JSON file",
-    "import_password_needed": "This file is encrypted. Enter the master password used when exporting it:",
+    "import_password_needed": "This file is encrypted. Enter the encryption password used when exporting it:",
     "import_analyze": "Analyze file",
     "import_preview_title": "Import preview (you can edit items before saving)",
     "import_conflicts_badge": "Conflict detected",
@@ -159,6 +166,7 @@
     "terminal": "SSH Terminal",
     "terminal_font_family": "Font family (any installed monospace/Nerd font)",
     "terminal_font_size": "Font size (px)",
+    "terminal_copy_on_select": "Automatically copy selected text to clipboard",
     "security": "Vault Security",
     "current_mode": "Current mode",
     "migrate_to_a": "Enable Master Password (Mode A)",
@@ -234,7 +242,8 @@
     "ctx_download": "Download to local",
     "drop_to_upload": "Drop files or folders here to upload",
     "drop_to_download": "Drop files or folders here to download",
-    "open_ssh_here": "Open SSH Terminal"
+    "open_ssh_here": "Open SSH Terminal",
+    "ssh_disconnected_hint": "Press [R] to reconnect or [Enter] to close tab..."
   },
   "queue": {
     "filter_all": "All",
@@ -288,5 +297,26 @@
     "title": "Authentication Required",
     "subtitle": "Enter credentials to connect to {{host}}:{{port}} (not saved to vault).",
     "anonymous_button": "Connect anonymously"
+  },
+  "home": {
+    "search_placeholder": "Search sessions by name or host...",
+    "recent_title": "Recent sessions",
+    "results_title": "Matching sessions",
+    "no_recent": "No sessions opened yet. Pick a session from the sidebar or use Quick Connect.",
+    "no_results": "No sessions match your search."
+  },
+  "about": {
+    "title": "About CD Connector",
+    "version": "Version",
+    "author": "Author",
+    "license": "License",
+    "repository": "Repository",
+    "protocols": "Supported protocols",
+    "shortcuts_title": "Keyboard shortcuts",
+    "sc_sidebar": "Toggle sessions sidebar",
+    "sc_local": "Toggle local explorer",
+    "sc_console": "Toggle console / log",
+    "sc_queue": "Toggle transfer queue",
+    "sc_terminal_cp": "Copy / Paste in SSH terminal"
   }
 }

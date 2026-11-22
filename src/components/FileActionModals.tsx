@@ -187,6 +187,9 @@ interface ConfirmActionModalProps {
   message: string;
   confirmLabel?: string;
   danger?: boolean;
+  checkboxLabel?: string;
+  checkboxChecked?: boolean;
+  onCheckboxChange?: (checked: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -196,6 +199,9 @@ export function ConfirmActionModal({
   message,
   confirmLabel,
   danger = true,
+  checkboxLabel,
+  checkboxChecked = false,
+  onCheckboxChange,
   onConfirm,
   onCancel,
 }: ConfirmActionModalProps) {
@@ -224,6 +230,18 @@ export function ConfirmActionModal({
           <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
             {message}
           </p>
+
+          {checkboxLabel && onCheckboxChange && (
+            <label className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checkboxChecked}
+                onChange={(e) => onCheckboxChange(e.target.checked)}
+                className="rounded border-zinc-300 text-red-600 focus:ring-red-500"
+              />
+              {checkboxLabel}
+            </label>
+          )}
 
           <div className="flex justify-end gap-2">
             <button

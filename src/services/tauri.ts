@@ -7,6 +7,7 @@ import type {
   CredentialInput,
   CredentialSummary,
   EnqueueTransferRequest,
+  ExportOptions,
   ExportSummary,
   FileEntry,
   Folder,
@@ -59,7 +60,8 @@ export const api = {
     invoke<Folder>("create_folder", { input }),
   updateFolder: (id: string, input: FolderInput) =>
     invoke<Folder>("update_folder", { id, input }),
-  deleteFolder: (id: string) => invoke<void>("delete_folder", { id }),
+  deleteFolder: (id: string, deleteChildren = false) =>
+    invoke<void>("delete_folder", { id, deleteChildren }),
 
   // Sessions
   listSessions: () => invoke<Session[]>("list_sessions"),
@@ -68,6 +70,8 @@ export const api = {
   updateSession: (id: string, input: SessionInput) =>
     invoke<Session>("update_session", { id, input }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  markSessionOpened: (id: string) =>
+    invoke<string>("mark_session_opened", { id }),
 
   // Config
   getAppConfig: () => invoke<AppConfig>("get_app_config"),
@@ -75,7 +79,8 @@ export const api = {
     invoke<AppConfig>("update_app_config", { config }),
 
   // Portability
-  exportData: () => invoke<string>("export_data"),
+  exportData: (options: ExportOptions) =>
+    invoke<string>("export_data", { options }),
   previewImport: (rawJson: string, importPassword?: string) =>
     invoke<ImportPreview>("preview_import", {
       rawJson,

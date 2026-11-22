@@ -14,7 +14,7 @@ use crate::protocols::ResolvedAuth;
 pub enum SshCommand {
     Write(Vec<u8>),
     Resize { cols: u32, rows: u32 },
-    Close,
+    Close { silent: bool },
 }
 
 pub struct SshTerminalHandle {
@@ -216,7 +216,7 @@ pub async fn connect_ssh_terminal(
     let tab_id_task = tab_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        let close_reason = loop {
+        let close_reason: Option<String> = loop {
             tokio::select! {
                 msg = channel.wait() => {
                     match msg {
@@ -239,7 +239,7 @@ pub async fn connect_ssh_terminal(
                             );
                         }
                         Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
-                            break "Remote shell exited".to_string();
+                            break Some("Remote shell exited".to_string());
                         }
                         _ => {}
                     }
@@ -248,31 +248,36 @@ pub async fn connect_ssh_terminal(
                     match cmd {
                         Some(SshCommand::Write(bytes)) => {
                             if channel.data(&bytes[..]).await.is_err() {
-                                break "Write failed".to_string();
+                                break Some("Write failed".to_string());
                             }
                         }
                         Some(SshCommand::Resize { cols, rows }) => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
                         }
-                        Some(SshCommand::Close) | None => {
+                        Some(SshCommand::Close { silent }) => {
                             let _ = channel.eof().await;
                             let _ = session
                                 .disconnect(Disconnect::ByApplication, "User disconnected", "en")
                                 .await;
-                            break "Disconnected".to_string();
+                            break if silent { None } else { Some("Disconnected".to_string()) };
+                        }
+                        None => {
+                            break None;
                         }
                     }
                 }
             }
         };
 
-        let _ = app.emit(
-            "ssh-closed",
-            SshClosedEvent {
-                tab_id: tab_id_task,
-                reason: close_reason,
-            },
-        );
+        if let Some(reason) = close_reason {
+            let _ = app.emit(
+                "ssh-closed",
+                SshClosedEvent {
+                    tab_id: tab_id_task,
+                    reason,
+                },
+            );
+        }
     });
 
     let newly_trusted_key = accepted_key.lock().ok().and_then(|mut g| g.take());

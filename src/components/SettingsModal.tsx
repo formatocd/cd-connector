@@ -24,6 +24,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [terminalFontSize, setTerminalFontSize] = useState(
     config.terminal_font_size
   );
+  const [terminalCopyOnSelect, setTerminalCopyOnSelect] = useState(
+    config.terminal_copy_on_select
+  );
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   // Security migration state
@@ -49,6 +52,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         terminalFontFamily.trim() ||
         "Cascadia Code, Consolas, ui-monospace, monospace",
       terminal_font_size: Math.min(28, Math.max(10, Number(terminalFontSize) || 13)),
+      terminal_copy_on_select: terminalCopyOnSelect,
     });
     setSavedMsg(t("settings.saved"));
   };
@@ -221,6 +225,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             >
               carlos@cd-connector:~$ ls -la /var/www/html
             </div>
+            <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={terminalCopyOnSelect}
+                onChange={(e) => setTerminalCopyOnSelect(e.target.checked)}
+                className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              {t("settings.terminal_copy_on_select")}
+            </label>
 
             <div className="flex items-center justify-between pt-1">
               {savedMsg ? (

@@ -36,12 +36,14 @@ export interface Folder {
   parent_id: string | null;
   name: string;
   sort_order: number;
+  icon_color?: string | null;
 }
 
 export interface FolderInput {
   parent_id: string | null;
   name: string;
   sort_order?: number;
+  icon_color?: string | null;
 }
 
 export type Protocol =
@@ -64,6 +66,8 @@ export interface Session {
   passive_mode: boolean;
   accept_invalid_certs: boolean;
   sort_order: number;
+  icon_color?: string | null;
+  last_opened_at?: string | null;
 }
 
 export interface SessionInput {
@@ -78,6 +82,7 @@ export interface SessionInput {
   passive_mode?: boolean;
   accept_invalid_certs?: boolean;
   sort_order?: number;
+  icon_color?: string | null;
 }
 
 export interface AppConfig {
@@ -92,6 +97,7 @@ export interface AppConfig {
   ui_show_command_panel: boolean;
   terminal_font_family: string;
   terminal_font_size: number;
+  terminal_copy_on_select: boolean;
 }
 
 export type ImportAction = "import" | "overwrite" | "skip";
@@ -153,6 +159,12 @@ export interface ImportResult {
   folders_imported: number;
   credentials_imported: number;
   sessions_imported: number;
+}
+
+export interface ExportOptions {
+  include_usernames: boolean;
+  include_secrets: boolean;
+  export_password?: string;
 }
 
 export interface ExportSummary {

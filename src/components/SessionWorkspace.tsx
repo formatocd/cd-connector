@@ -186,16 +186,20 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      const startLocal =
-        session.local_initial_path || (await api.getDefaultLocalDir().catch(() => "/"));
-      if (active && startLocal) {
-        loadLocalDir(startLocal);
-      }
-    })();
-    connect();
+    const connectTimer = window.setTimeout(() => {
+      if (!active) return;
+      (async () => {
+        const startLocal =
+          session.local_initial_path || (await api.getDefaultLocalDir().catch(() => "/"));
+        if (active && startLocal) {
+          loadLocalDir(startLocal);
+        }
+      })();
+      connect();
+    }, 0);
     return () => {
       active = false;
+      window.clearTimeout(connectTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
