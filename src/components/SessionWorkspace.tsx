@@ -333,6 +333,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
                       error={localError}
                       isRemote={false}
                       onNavigate={loadLocalDir}
+                      onFetchSubdirs={(p) => api.localListDir(p)}
                       onParentDir={() => loadLocalDir(parentLocalPath(localPath))}
                       onRefresh={() => loadLocalDir(localPath)}
                       onNewFolder={() => setModal({ kind: "mkdir", isRemote: false })}
@@ -361,6 +362,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
                   isRemote={true}
                   disabled={connState !== "connected"}
                   onNavigate={loadRemoteDir}
+                  onFetchSubdirs={(p) => api.remoteListDir(tabId, p)}
                   onParentDir={() => loadRemoteDir(parentRemotePath(remotePath))}
                   onRefresh={() => loadRemoteDir(remotePath)}
                   onNewFolder={() => setModal({ kind: "mkdir", isRemote: true })}

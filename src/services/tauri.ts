@@ -96,6 +96,7 @@ export const api = {
 
   // Local Filesystem
   getDefaultLocalDir: () => invoke<string>("get_default_local_dir"),
+  localListRoots: () => invoke<string[]>("local_list_roots"),
   localListDir: (path: string) => invoke<FileEntry[]>("local_list_dir", { path }),
   localMkdir: (path: string) => invoke<void>("local_mkdir", { path }),
   localRename: (from: string, to: string) =>

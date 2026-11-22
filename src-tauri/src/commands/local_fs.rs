@@ -15,6 +15,28 @@ pub fn get_default_local_dir() -> AppResult<String> {
 }
 
 #[tauri::command]
+pub fn local_list_roots() -> AppResult<Vec<String>> {
+    #[cfg(windows)]
+    {
+        let mut roots = Vec::new();
+        for letter in b'A'..=b'Z' {
+            let root = format!("{}:\\", letter as char);
+            if Path::new(&root).exists() {
+                roots.push(root);
+            }
+        }
+        if roots.is_empty() {
+            roots.push("C:\\".to_string());
+        }
+        Ok(roots)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(vec!["/".to_string()])
+    }
+}
+
+#[tauri::command]
 pub fn local_list_dir(path: String) -> AppResult<Vec<FileEntry>> {
     let target = Path::new(&path);
     if !target.exists() {

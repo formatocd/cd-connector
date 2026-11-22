@@ -225,7 +225,8 @@
     "props_write": "Escritura",
     "props_exec": "Ejecución",
     "props_octal": "Modo octal",
-    "edit_path_tooltip": "Editar ruta directamente"
+    "edit_path_tooltip": "Editar ruta directamente",
+    "toggle_tree": "Mostrar/Ocultar árbol de carpetas"
   },
   "host_key": {
     "title_new": "Verificar clave de host SSH",

@@ -225,7 +225,8 @@
     "props_write": "Write",
     "props_exec": "Execute",
     "props_octal": "Octal mode",
-    "edit_path_tooltip": "Edit path directly"
+    "edit_path_tooltip": "Edit path directly",
+    "toggle_tree": "Toggle directory tree"
   },
   "host_key": {
     "title_new": "Verify SSH Host Key",

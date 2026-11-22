@@ -51,6 +51,7 @@ pub fn run() {
             commands::portability::inspect_export_bundle,
             commands::portability::setup_from_json,
             commands::local_fs::get_default_local_dir,
+            commands::local_fs::local_list_roots,
             commands::local_fs::local_list_dir,
             commands::local_fs::local_mkdir,
             commands::local_fs::local_rename,

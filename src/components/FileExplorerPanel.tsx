@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
   ArrowUp,
   FolderPlus,
+  FolderTree,
   RefreshCw,
   Loader2,
   AlertCircle,
@@ -12,6 +14,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { BreadcrumbBar } from "./BreadcrumbBar";
+import { DirectoryTreePane } from "./DirectoryTreePane";
 import { FileIcon } from "./FileIcon";
 import { FileContextMenu, type ContextMenuState } from "./FileContextMenu";
 import type { FileEntry } from "../types";
@@ -28,6 +31,7 @@ interface FileExplorerPanelProps {
   isRemote: boolean;
   disabled?: boolean;
   onNavigate: (path: string) => void;
+  onFetchSubdirs: (path: string) => Promise<FileEntry[]>;
   onParentDir: () => void;
   onRefresh: () => void;
   onNewFolder: () => void;
@@ -66,6 +70,7 @@ export function FileExplorerPanel({
   isRemote,
   disabled = false,
   onNavigate,
+  onFetchSubdirs,
   onParentDir,
   onRefresh,
   onNewFolder,
@@ -77,6 +82,7 @@ export function FileExplorerPanel({
 
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [showTree, setShowTree] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -256,6 +262,18 @@ export function FileExplorerPanel({
 
         <button
           type="button"
+          title={t("workspace.toggle_tree")}
+          onClick={() => setShowTree((v) => !v)}
+          className={`p-1 rounded cursor-pointer shrink-0 transition-colors ${
+            showTree
+              ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+              : "hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500"
+          }`}
+        >
+          <FolderTree className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
           disabled={disabled}
           title={t("workspace.parent_dir")}
           onClick={onParentDir}
@@ -283,121 +301,146 @@ export function FileExplorerPanel({
         </button>
       </div>
 
-      {/* Column Headers */}
-      <div className="grid grid-cols-[1fr_76px_88px_116px] items-center px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-[11px] font-medium text-zinc-500 shrink-0 select-none">
-        <button
-          type="button"
-          onClick={() => toggleSort("name")}
-          className="flex items-center gap-1 text-left hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-        >
-          {t("workspace.col_name")}
-          {renderSortIcon("name")}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleSort("size")}
-          className="flex items-center justify-end gap-1 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-        >
-          {t("workspace.col_size")}
-          {renderSortIcon("size")}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleSort("permissions")}
-          className="flex items-center gap-1 pl-2 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-        >
-          {t("workspace.col_perms")}
-          {renderSortIcon("permissions")}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleSort("modified")}
-          className="flex items-center justify-end gap-1 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
-        >
-          {t("workspace.col_modified")}
-          {renderSortIcon("modified")}
-        </button>
-      </div>
+      {/* Tree + File List Area */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <PanelGroup direction="vertical">
+          {showTree && (
+            <>
+              <Panel id={isRemote ? "remote-tree" : "local-tree"} order={1} defaultSize={30} minSize={12}>
+                <DirectoryTreePane
+                  currentPath={path}
+                  currentEntries={entries}
+                  isRemote={isRemote}
+                  disabled={disabled}
+                  onNavigate={onNavigate}
+                  onFetchSubdirs={onFetchSubdirs}
+                />
+              </Panel>
+              <PanelResizeHandle className="h-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500/70 active:bg-indigo-500 transition-colors cursor-row-resize" />
+            </>
+          )}
 
-      {/* Virtualized File List */}
-      <div
-        ref={scrollRef}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setSelectedPaths(new Set());
-            setAnchorIndex(null);
-          }
-        }}
-        onContextMenu={handleEmptyContextMenu}
-        className="flex-1 min-h-0 overflow-y-auto relative"
-      >
-        {error && (
-          <div className="m-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span className="break-all">{error}</span>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="h-full flex items-center justify-center text-xs text-zinc-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-          </div>
-        ) : sortedEntries.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-xs text-zinc-400">
-            {t("workspace.empty_dir")}
-          </div>
-        ) : (
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((vRow) => {
-              const entry = sortedEntries[vRow.index];
-              const isSelected = selectedPaths.has(entry.path);
-
-              return (
-                <div
-                  key={entry.path}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: `${vRow.size}px`,
-                    transform: `translateY(${vRow.start}px)`,
-                  }}
-                  onClick={(e) => handleRowClick(e, vRow.index, entry)}
-                  onDoubleClick={() => {
-                    if (entry.is_dir) onNavigate(entry.path);
-                  }}
-                  onContextMenu={(e) => handleRowContextMenu(e, vRow.index, entry)}
-                  className={`grid grid-cols-[1fr_76px_88px_116px] items-center px-3 text-xs cursor-default select-none border-b border-zinc-100/70 dark:border-zinc-900/70 ${
-                    isSelected
-                      ? "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-950 dark:text-indigo-50"
-                      : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70 text-zinc-800 dark:text-zinc-200"
-                  }`}
+          <Panel id={isRemote ? "remote-list" : "local-list"} order={2} defaultSize={70} minSize={25}>
+            <div className="h-full w-full flex flex-col">
+              {/* Column Headers */}
+              <div className="grid grid-cols-[1fr_76px_88px_116px] items-center px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-[11px] font-medium text-zinc-500 shrink-0 select-none">
+                <button
+                  type="button"
+                  onClick={() => toggleSort("name")}
+                  className="flex items-center gap-1 text-left hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 min-w-0 pr-2">
-                    <FileIcon entry={entry} />
-                    <span className="truncate">{entry.name}</span>
+                  {t("workspace.col_name")}
+                  {renderSortIcon("name")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("size")}
+                  className="flex items-center justify-end gap-1 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                >
+                  {t("workspace.col_size")}
+                  {renderSortIcon("size")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("permissions")}
+                  className="flex items-center gap-1 pl-2 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                >
+                  {t("workspace.col_perms")}
+                  {renderSortIcon("permissions")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleSort("modified")}
+                  className="flex items-center justify-end gap-1 hover:text-zinc-800 dark:hover:text-zinc-200 cursor-pointer"
+                >
+                  {t("workspace.col_modified")}
+                  {renderSortIcon("modified")}
+                </button>
+              </div>
+
+              {/* Virtualized File List */}
+              <div
+                ref={scrollRef}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) {
+                    setSelectedPaths(new Set());
+                    setAnchorIndex(null);
+                  }
+                }}
+                onContextMenu={handleEmptyContextMenu}
+                className="flex-1 min-h-0 overflow-y-auto relative"
+              >
+                {error && (
+                  <div className="m-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span className="break-all">{error}</span>
                   </div>
-                  <div className="text-right font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {entry.is_dir ? "—" : formatBytes(entry.size)}
+                )}
+
+                {loading ? (
+                  <div className="h-full flex items-center justify-center text-xs text-zinc-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   </div>
-                  <div className="pl-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                    {entry.permissions ?? "—"}
+                ) : sortedEntries.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-zinc-400">
+                    {t("workspace.empty_dir")}
                   </div>
-                  <div className="text-right font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                    {formatModified(entry.modified)}
+                ) : (
+                  <div
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      width: "100%",
+                      position: "relative",
+                    }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((vRow) => {
+                      const entry = sortedEntries[vRow.index];
+                      const isSelected = selectedPaths.has(entry.path);
+
+                      return (
+                        <div
+                          key={entry.path}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            height: `${vRow.size}px`,
+                            transform: `translateY(${vRow.start}px)`,
+                          }}
+                          onClick={(e) => handleRowClick(e, vRow.index, entry)}
+                          onDoubleClick={() => {
+                            if (entry.is_dir) onNavigate(entry.path);
+                          }}
+                          onContextMenu={(e) => handleRowContextMenu(e, vRow.index, entry)}
+                          className={`grid grid-cols-[1fr_76px_88px_116px] items-center px-3 text-xs cursor-default select-none border-b border-zinc-100/70 dark:border-zinc-900/70 ${
+                            isSelected
+                              ? "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-950 dark:text-indigo-50"
+                              : "hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70 text-zinc-800 dark:text-zinc-200"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 pr-2">
+                            <FileIcon entry={entry} />
+                            <span className="truncate">{entry.name}</span>
+                          </div>
+                          <div className="text-right font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {entry.is_dir ? "—" : formatBytes(entry.size)}
+                          </div>
+                          <div className="pl-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                            {entry.permissions ?? "—"}
+                          </div>
+                          <div className="text-right font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                            {formatModified(entry.modified)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                )}
+              </div>
+            </div>
+          </Panel>
+        </PanelGroup>
       </div>
 
       {/* Panel Footer Status */}
