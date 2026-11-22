@@ -288,6 +288,29 @@ export interface EnqueueTransferRequest {
   items: EnqueueEntry[];
 }
 
+export interface SshConnectRequest {
+  tab_id: string;
+  host: string;
+  port: number;
+  credential_id?: string | null;
+  username?: string | null;
+  password?: string | null;
+  initial_dir?: string | null;
+  cols?: number;
+  rows?: number;
+  trust_host_key?: boolean;
+}
+
+export interface SshDataEvent {
+  tab_id: string;
+  data_b64: string;
+}
+
+export interface SshClosedEvent {
+  tab_id: string;
+  reason: string;
+}
+
 export interface BackendError {
   code?: string;
   message?: string;

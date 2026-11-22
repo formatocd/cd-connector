@@ -19,6 +19,7 @@ import type {
   SecurityStatus,
   Session,
   SessionInput,
+  SshConnectRequest,
   TransferItem,
 } from "../types";
 
@@ -150,4 +151,14 @@ export const api = {
       action,
       applyToAll,
     }),
+
+  // SSH Terminal
+  sshConnect: (request: SshConnectRequest) =>
+    invoke<ConnectResponse>("ssh_connect", { request }),
+  sshWrite: (tabId: string, data: string) =>
+    invoke<void>("ssh_write", { tabId, data }),
+  sshResize: (tabId: string, cols: number, rows: number) =>
+    invoke<void>("ssh_resize", { tabId, cols, rows }),
+  sshDisconnect: (tabId: string) =>
+    invoke<void>("ssh_disconnect", { tabId }),
 };

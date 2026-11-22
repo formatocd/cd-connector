@@ -26,6 +26,7 @@ import { SessionModal } from "./components/SessionModal";
 import { ImportExportModal } from "./components/ImportExportModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { SessionWorkspace } from "./components/SessionWorkspace";
+import { SshTerminalWorkspace } from "./components/SshTerminalWorkspace";
 import { ConflictModal } from "./components/ConflictModal";
 import type {
   ConflictPromptEvent,
@@ -313,7 +314,11 @@ export function App() {
                         : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
                     }`}
                   >
-                    <Server className="w-3 h-3 text-indigo-500" />
+                    {tab.session.protocol === "ssh" ? (
+                      <Terminal className="w-3 h-3 text-purple-500" />
+                    ) : (
+                      <Server className="w-3 h-3 text-indigo-500" />
+                    )}
                     <span className="max-w-36 truncate">{tab.session.name}</span>
                     <button
                       type="button"
@@ -355,13 +360,21 @@ export function App() {
               </p>
             </div>
           ) : (
-            tabs.map((tab) => (
-              <SessionWorkspace
-                key={tab.tabId}
-                tab={tab}
-                isActive={tab.tabId === activeTabId}
-              />
-            ))
+            tabs.map((tab) =>
+              tab.session.protocol === "ssh" ? (
+                <SshTerminalWorkspace
+                  key={tab.tabId}
+                  tab={tab}
+                  isActive={tab.tabId === activeTabId}
+                />
+              ) : (
+                <SessionWorkspace
+                  key={tab.tabId}
+                  tab={tab}
+                  isActive={tab.tabId === activeTabId}
+                />
+              )
+            )
           )}
         </main>
       </div>

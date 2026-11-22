@@ -230,7 +230,8 @@
     "ctx_upload": "Upload to remote",
     "ctx_download": "Download to local",
     "drop_to_upload": "Drop files or folders here to upload",
-    "drop_to_download": "Drop files or folders here to download"
+    "drop_to_download": "Drop files or folders here to download",
+    "open_ssh_here": "Open SSH Terminal"
   },
   "queue": {
     "filter_all": "All",

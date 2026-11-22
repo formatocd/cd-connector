@@ -122,6 +122,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   closeTab: (tabId) => {
     api.disconnectSession(tabId).catch(() => {});
+    api.sshDisconnect(tabId).catch(() => {});
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.tabId === tabId);
       const nextTabs = state.tabs.filter((t) => t.tabId !== tabId);

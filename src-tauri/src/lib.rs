@@ -82,6 +82,10 @@ pub fn run() {
             commands::transfer::cancel_all_transfers,
             commands::transfer::clear_completed_transfers,
             commands::transfer::resolve_transfer_conflict,
+            commands::ssh::ssh_connect,
+            commands::ssh::ssh_write,
+            commands::ssh::ssh_resize,
+            commands::ssh::ssh_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running CD Connector");

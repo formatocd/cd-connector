@@ -230,7 +230,8 @@
     "ctx_upload": "Subir al servidor remoto",
     "ctx_download": "Descargar a local",
     "drop_to_upload": "Suelta aquí archivos o carpetas para subir",
-    "drop_to_download": "Suelta aquí archivos o carpetas para descargar"
+    "drop_to_download": "Suelta aquí archivos o carpetas para descargar",
+    "open_ssh_here": "Abrir terminal SSH"
   },
   "queue": {
     "filter_all": "Todas",

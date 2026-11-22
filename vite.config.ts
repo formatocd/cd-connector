@@ -14,6 +14,7 @@ export default defineConfig(async () => ({
           react: ["react", "react-dom"],
           i18n: ["i18next", "react-i18next"],
           ui: ["lucide-react", "react-resizable-panels", "@tanstack/react-virtual"],
+          xterm: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
           tauri: ["@tauri-apps/api", "@tauri-apps/plugin-dialog", "zustand"],
         },
       },

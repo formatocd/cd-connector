@@ -524,3 +524,31 @@ pub struct EnqueueTransferRequest {
     pub items: Vec<EnqueueEntry>,
 }
 
+// --- Phase 4.5: SSH Terminal Emulator ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SshConnectRequest {
+    pub tab_id: String,
+    pub host: String,
+    pub port: u16,
+    pub credential_id: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub initial_dir: Option<String>,
+    pub cols: Option<u32>,
+    pub rows: Option<u32>,
+    pub trust_host_key: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SshDataEvent {
+    pub tab_id: String,
+    pub data_b64: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SshClosedEvent {
+    pub tab_id: String,
+    pub reason: String,
+}
+

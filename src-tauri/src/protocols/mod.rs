@@ -1,5 +1,6 @@
 pub mod ftp;
 pub mod sftp;
+pub mod ssh_terminal;
 
 use async_trait::async_trait;
 use chrono::Utc;
