@@ -233,6 +233,61 @@ export interface ConnectRequest {
   trust_host_key?: boolean;
 }
 
+export type TransferDirection = "upload" | "download";
+
+export type TransferStatus =
+  | "queued"
+  | "in_progress"
+  | "paused"
+  | "waiting_conflict"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ConflictAction =
+  | "overwrite"
+  | "overwrite_if_newer_or_diff_size"
+  | "skip"
+  | "auto_rename";
+
+export interface TransferItem {
+  id: string;
+  tab_id: string;
+  direction: TransferDirection;
+  file_name: string;
+  local_path: string;
+  remote_path: string;
+  total_bytes: number;
+  transferred_bytes: number;
+  speed_bps: number;
+  eta_seconds: number | null;
+  status: TransferStatus;
+  error: string | null;
+}
+
+export interface ConflictPromptEvent {
+  transfer_id: string;
+  tab_id: string;
+  direction: TransferDirection;
+  file_name: string;
+  source_size: number;
+  source_modified: number | null;
+  dest_size: number;
+  dest_modified: number | null;
+}
+
+export interface EnqueueEntry {
+  local_path: string;
+  remote_path: string;
+  is_dir: boolean;
+}
+
+export interface EnqueueTransferRequest {
+  tab_id: string;
+  direction: TransferDirection;
+  items: EnqueueEntry[];
+}
+
 export interface BackendError {
   code?: string;
   message?: string;

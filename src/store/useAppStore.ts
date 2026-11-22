@@ -3,12 +3,14 @@ import i18n from "../i18n";
 import { api } from "../services/tauri";
 import type {
   AppConfig,
+  ConflictPromptEvent,
   CredentialSummary,
   Folder,
   OpenTab,
   SecurityStatus,
   Session,
   SessionLogEvent,
+  TransferItem,
   TransientAuth,
 } from "../types";
 
@@ -34,6 +36,8 @@ interface AppStoreState {
   tabs: OpenTab[];
   activeTabId: string | null;
   sessionLogs: Record<string, SessionLogEvent[]>;
+  transfers: TransferItem[];
+  conflictQueue: ConflictPromptEvent[];
 
   initialize: () => Promise<void>;
   refreshVaultData: () => Promise<void>;
@@ -46,6 +50,9 @@ interface AppStoreState {
   setActiveTab: (tabId: string) => void;
   appendSessionLog: (event: SessionLogEvent) => void;
   clearSessionLogs: (tabId: string) => void;
+  setTransfers: (items: TransferItem[]) => void;
+  pushConflict: (conflict: ConflictPromptEvent) => void;
+  removeConflict: (transferId: string) => void;
 }
 
 const MAX_LOGS_PER_TAB = 500;
@@ -60,6 +67,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   sessionLogs: {},
+  transfers: [],
+  conflictQueue: [],
 
   initialize: async () => {
     set({ loading: true });
@@ -162,4 +171,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
     }));
   },
+
+  setTransfers: (items) => set({ transfers: items }),
+
+  pushConflict: (conflict) =>
+    set((state) => ({
+      conflictQueue: [...state.conflictQueue, conflict],
+    })),
+
+  removeConflict: (transferId) =>
+    set((state) => ({
+      conflictQueue: state.conflictQueue.filter((c) => c.transfer_id !== transferId),
+    })),
 }));

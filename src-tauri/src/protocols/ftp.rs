@@ -2,14 +2,21 @@ use async_trait::async_trait;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use std::io::SeekFrom;
+use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use suppaftp::tokio::{AsyncRustlsConnector, AsyncRustlsFtpStream};
-use suppaftp::types::Mode;
+use suppaftp::types::{FileType, Mode};
 use suppaftp::{FtpError, Status};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{FileEntry, Protocol};
-use crate::protocols::{join_remote_path, sort_entries, FileTransferClient, LogEmitter, ResolvedAuth};
+use crate::protocols::{
+    join_remote_path, sort_entries, ExistingFileInfo, FileTransferClient, LogEmitter, ResolvedAuth,
+    TransferControl, TransferOutcome,
+};
 
 #[derive(Debug)]
 struct DangerousServerCertVerifier;
@@ -297,6 +304,181 @@ impl FileTransferClient for FtpClient {
             mode: None,
             owner: None,
         })
+    }
+
+    async fn exists_info(&mut self, path: &str) -> AppResult<Option<ExistingFileInfo>> {
+        let _ = self.stream.transfer_type(FileType::Binary).await;
+        match self.stream.size(path).await {
+            Ok(size) => {
+                let modified_epoch = self
+                    .stream
+                    .mdtm(path)
+                    .await
+                    .ok()
+                    .map(|dt| dt.and_utc().timestamp());
+                Ok(Some(ExistingFileInfo {
+                    size: size as u64,
+                    modified_epoch,
+                }))
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn upload_file(
+        &mut self,
+        local_path: &Path,
+        remote_path: &str,
+        offset: u64,
+        control: TransferControl,
+    ) -> AppResult<TransferOutcome> {
+        self.stream
+            .transfer_type(FileType::Binary)
+            .await
+            .map_err(|e| AppError::Protocol(e.to_string()))?;
+
+        let mut effective_offset = offset;
+        if offset > 0 {
+            self.logger.command(format!("REST {offset}"));
+            if self.stream.resume_transfer(offset as usize).await.is_err() {
+                self.logger
+                    .info("Server rejected REST; restarting upload from byte 0");
+                effective_offset = 0;
+            }
+        }
+
+        let mut local_file = tokio::fs::File::open(local_path).await?;
+        if effective_offset > 0 {
+            local_file.seek(SeekFrom::Start(effective_offset)).await?;
+        }
+
+        self.logger.command(format!("STOR {remote_path}"));
+        let mut data_stream = self
+            .stream
+            .put_with_stream(remote_path)
+            .await
+            .map_err(|e| {
+                self.logger.error(format!("STOR error: {e}"));
+                AppError::Protocol(e.to_string())
+            })?;
+
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut transferred = effective_offset;
+        (control.on_progress)(transferred);
+
+        loop {
+            if control.cancel_flag.load(Ordering::Relaxed) {
+                drop(data_stream);
+                self.logger.info(format!("Upload cancelled: {remote_path}"));
+                return Ok(TransferOutcome::Cancelled);
+            }
+            if control.pause_flag.load(Ordering::Relaxed) {
+                drop(data_stream);
+                self.logger
+                    .info(format!("Upload paused at {transferred} bytes: {remote_path}"));
+                return Ok(TransferOutcome::Paused(transferred));
+            }
+
+            let n = local_file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            control.limiter.acquire(n).await;
+            data_stream.write_all(&buf[..n]).await?;
+            transferred += n as u64;
+            (control.on_progress)(transferred);
+        }
+
+        data_stream.finish().await.map_err(|e| {
+            self.logger.error(format!("Upload finalize error: {e}"));
+            AppError::Protocol(e.to_string())
+        })?;
+        self.logger
+            .response(format!("226 Upload complete: {remote_path} ({transferred} bytes)"));
+        Ok(TransferOutcome::Completed(transferred))
+    }
+
+    async fn download_file(
+        &mut self,
+        remote_path: &str,
+        local_path: &Path,
+        offset: u64,
+        control: TransferControl,
+    ) -> AppResult<TransferOutcome> {
+        self.stream
+            .transfer_type(FileType::Binary)
+            .await
+            .map_err(|e| AppError::Protocol(e.to_string()))?;
+
+        let mut effective_offset = offset;
+        if offset > 0 {
+            self.logger.command(format!("REST {offset}"));
+            if self.stream.resume_transfer(offset as usize).await.is_err() {
+                self.logger
+                    .info("Server rejected REST; restarting download from byte 0");
+                effective_offset = 0;
+            }
+        }
+
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut local_file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(effective_offset == 0)
+            .open(local_path)
+            .await?;
+        if effective_offset > 0 {
+            local_file.seek(SeekFrom::Start(effective_offset)).await?;
+        }
+
+        self.logger.command(format!("RETR {remote_path}"));
+        let mut data_stream = self
+            .stream
+            .retr_as_stream(remote_path)
+            .await
+            .map_err(|e| {
+                self.logger.error(format!("RETR error: {e}"));
+                AppError::Protocol(e.to_string())
+            })?;
+
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut transferred = effective_offset;
+        (control.on_progress)(transferred);
+
+        loop {
+            if control.cancel_flag.load(Ordering::Relaxed) {
+                drop(data_stream);
+                self.logger.info(format!("Download cancelled: {remote_path}"));
+                return Ok(TransferOutcome::Cancelled);
+            }
+            if control.pause_flag.load(Ordering::Relaxed) {
+                let _ = local_file.flush().await;
+                drop(data_stream);
+                self.logger
+                    .info(format!("Download paused at {transferred} bytes: {remote_path}"));
+                return Ok(TransferOutcome::Paused(transferred));
+            }
+
+            let n = data_stream.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            control.limiter.acquire(n).await;
+            local_file.write_all(&buf[..n]).await?;
+            transferred += n as u64;
+            (control.on_progress)(transferred);
+        }
+
+        local_file.flush().await?;
+        data_stream.finish().await.map_err(|e| {
+            self.logger.error(format!("Download finalize error: {e}"));
+            AppError::Protocol(e.to_string())
+        })?;
+        self.logger
+            .response(format!("226 Download complete: {remote_path} ({transferred} bytes)"));
+        Ok(TransferOutcome::Completed(transferred))
     }
 
     async fn send_raw_command(&mut self, command: &str) -> AppResult<String> {

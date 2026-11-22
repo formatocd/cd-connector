@@ -26,7 +26,13 @@ import { SessionModal } from "./components/SessionModal";
 import { ImportExportModal } from "./components/ImportExportModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { SessionWorkspace } from "./components/SessionWorkspace";
-import type { Session, SessionLogEvent } from "./types";
+import { ConflictModal } from "./components/ConflictModal";
+import type {
+  ConflictPromptEvent,
+  Session,
+  SessionLogEvent,
+  TransferItem,
+} from "./types";
 
 export function App() {
   const { t } = useTranslation();
@@ -43,6 +49,10 @@ export function App() {
     closeTab,
     duplicateTab,
     appendSessionLog,
+    conflictQueue,
+    setTransfers,
+    pushConflict,
+    removeConflict,
   } = useAppStore();
 
   const [showCredentials, setShowCredentials] = useState(false);
@@ -58,15 +68,23 @@ export function App() {
     initialize();
   }, [initialize]);
 
-  // Subscribe to real-time backend session logs
+  // Subscribe to real-time backend session logs & transfer queue events
   useEffect(() => {
-    const unlistenPromise = listen<SessionLogEvent>("session-log", (event) => {
+    const unlistenLog = listen<SessionLogEvent>("session-log", (event) => {
       appendSessionLog(event.payload);
     });
+    const unlistenQueue = listen<TransferItem[]>("transfer-queue-updated", (event) => {
+      setTransfers(event.payload);
+    });
+    const unlistenConflict = listen<ConflictPromptEvent>("transfer-conflict", (event) => {
+      pushConflict(event.payload);
+    });
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenLog.then((fn) => fn());
+      unlistenQueue.then((fn) => fn());
+      unlistenConflict.then((fn) => fn());
     };
-  }, [appendSessionLog]);
+  }, [appendSessionLog, setTransfers, pushConflict]);
 
   // Global panel visibility shortcuts (RF-11)
   useEffect(() => {
@@ -362,6 +380,21 @@ export function App() {
           initialFolderId={sessionModal.folderId}
           session={sessionModal.session}
           onClose={() => setSessionModal(null)}
+        />
+      )}
+      {conflictQueue.length > 0 && (
+        <ConflictModal
+          conflict={conflictQueue[0]}
+          onResolve={async (action, applyToAll) => {
+            const current = conflictQueue[0];
+            if (applyToAll) {
+              // Clear all queued conflicts locally as backend resolves them all
+              conflictQueue.forEach((c) => removeConflict(c.transfer_id));
+            } else {
+              removeConflict(current.transfer_id);
+            }
+            await api.resolveTransferConflict(current.transfer_id, action, applyToAll);
+          }}
         />
       )}
     </div>
