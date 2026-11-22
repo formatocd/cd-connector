@@ -161,9 +161,76 @@ export interface ExportSummary {
   sessions_count: number;
 }
 
+export interface TransientAuth {
+  username: string;
+  password?: string;
+}
+
 export interface OpenTab {
   tabId: string;
   session: Session;
+  transientAuth?: TransientAuth;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  is_symlink: boolean;
+  size: number;
+  modified: string | null;
+  permissions: string | null;
+  mode: number | null;
+  owner: string | null;
+}
+
+export type LogLevel = "command" | "response" | "info" | "error";
+
+export interface SessionLogEvent {
+  tab_id: string;
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+}
+
+export interface KnownHost {
+  id: string;
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  first_seen_at: string;
+}
+
+export interface HostKeyPromptInfo {
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  mismatch: boolean;
+  previous_fingerprint: string | null;
+}
+
+export type ConnectStatus = "connected" | "host_key_prompt" | "auth_required";
+
+export interface ConnectResponse {
+  status: ConnectStatus;
+  current_dir: string | null;
+  host_key_info: HostKeyPromptInfo | null;
+}
+
+export interface ConnectRequest {
+  tab_id: string;
+  protocol: Protocol;
+  host: string;
+  port: number;
+  credential_id?: string | null;
+  username?: string | null;
+  password?: string | null;
+  remote_initial_path?: string | null;
+  passive_mode?: boolean;
+  accept_invalid_certs?: boolean;
+  trust_host_key?: boolean;
 }
 
 export interface BackendError {

@@ -190,7 +190,12 @@ export function SessionModal({
         accept_invalid_certs: acceptInvalidCerts,
         sort_order: 0,
       };
-      openSessionTab(tempSession);
+      openSessionTab(
+        tempSession,
+        authMode === "manual" && manualUsername.trim()
+          ? { username: manualUsername.trim(), password: manualPassword }
+          : undefined
+      );
       onClose();
       return;
     }

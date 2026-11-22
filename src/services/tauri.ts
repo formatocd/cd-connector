@@ -1,14 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  ConnectRequest,
+  ConnectResponse,
   CredentialInput,
   CredentialSummary,
   ExportSummary,
+  FileEntry,
   Folder,
   FolderInput,
   ImportCommitRequest,
   ImportPreview,
   ImportResult,
+  KnownHost,
   SecurityMode,
   SecurityStatus,
   Session,
@@ -89,4 +93,34 @@ export const api = {
       mode,
       masterPassword: masterPassword ?? null,
     }),
+
+  // Local Filesystem
+  getDefaultLocalDir: () => invoke<string>("get_default_local_dir"),
+  localListDir: (path: string) => invoke<FileEntry[]>("local_list_dir", { path }),
+  localMkdir: (path: string) => invoke<void>("local_mkdir", { path }),
+  localRename: (from: string, to: string) =>
+    invoke<void>("local_rename", { from, to }),
+  localDelete: (path: string, isDir: boolean) =>
+    invoke<void>("local_delete", { path, isDir }),
+
+  // Remote Protocol Engine
+  connectSession: (request: ConnectRequest) =>
+    invoke<ConnectResponse>("connect_session", { request }),
+  disconnectSession: (tabId: string) =>
+    invoke<void>("disconnect_session", { tabId }),
+  remotePwd: (tabId: string) => invoke<string>("remote_pwd", { tabId }),
+  remoteListDir: (tabId: string, path: string) =>
+    invoke<FileEntry[]>("remote_list_dir", { tabId, path }),
+  remoteMkdir: (tabId: string, path: string) =>
+    invoke<void>("remote_mkdir", { tabId, path }),
+  remoteRename: (tabId: string, from: string, to: string) =>
+    invoke<void>("remote_rename", { tabId, from, to }),
+  remoteDelete: (tabId: string, path: string, isDir: boolean) =>
+    invoke<void>("remote_delete", { tabId, path, isDir }),
+  remoteChmod: (tabId: string, path: string, mode: number) =>
+    invoke<void>("remote_chmod", { tabId, path, mode }),
+  sendRawCommand: (tabId: string, command: string) =>
+    invoke<string>("send_raw_command", { tabId, command }),
+  listKnownHosts: () => invoke<KnownHost[]>("list_known_hosts"),
+  deleteKnownHost: (id: string) => invoke<void>("delete_known_host", { id }),
 };

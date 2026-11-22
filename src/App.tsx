@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { listen } from "@tauri-apps/api/event";
 import {
   Disc3,
   PanelLeft,
@@ -24,7 +25,8 @@ import { CredentialsModal } from "./components/CredentialsModal";
 import { SessionModal } from "./components/SessionModal";
 import { ImportExportModal } from "./components/ImportExportModal";
 import { SettingsModal } from "./components/SettingsModal";
-import type { Session } from "./types";
+import { SessionWorkspace } from "./components/SessionWorkspace";
+import type { Session, SessionLogEvent } from "./types";
 
 export function App() {
   const { t } = useTranslation();
@@ -40,6 +42,7 @@ export function App() {
     setActiveTab,
     closeTab,
     duplicateTab,
+    appendSessionLog,
   } = useAppStore();
 
   const [showCredentials, setShowCredentials] = useState(false);
@@ -54,6 +57,16 @@ export function App() {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Subscribe to real-time backend session logs
+  useEffect(() => {
+    const unlistenPromise = listen<SessionLogEvent>("session-log", (event) => {
+      appendSessionLog(event.payload);
+    });
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [appendSessionLog]);
 
   // Apply Light / Dark / System theme
   useEffect(() => {
@@ -86,8 +99,6 @@ export function App() {
   if (!security.unlocked) {
     return <UnlockModal />;
   }
-
-  const activeTab = tabs.find((tab) => tab.tabId === activeTabId) ?? null;
 
   const handleLock = async () => {
     const status = await api.lockVault();
@@ -275,7 +286,7 @@ export function App() {
           )}
 
           {/* Workspace Body */}
-          {!activeTab ? (
+          {tabs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
               <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4">
                 <Disc3 className="w-8 h-8" />
@@ -288,61 +299,13 @@ export function App() {
               </p>
             </div>
           ) : (
-            <div className="flex-1 min-h-0 flex flex-col">
-              {/* Dual File Panels */}
-              <div className="flex-1 min-h-0 flex divide-x divide-zinc-200 dark:divide-zinc-800">
-                {config.ui_show_local_panel && (
-                  <section className="flex-1 p-4 flex flex-col">
-                    <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-                      {t("workspace.panel_local")}
-                    </div>
-                    <div className="flex-1 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-center text-xs text-zinc-400">
-                      {t("workspace.phase2_hint")}
-                    </div>
-                  </section>
-                )}
-                <section className="flex-1 p-4 flex flex-col">
-                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
-                    {t("workspace.panel_remote")} —{" "}
-                    <span className="font-mono normal-case text-indigo-600 dark:text-indigo-400">
-                      {activeTab.session.protocol}://{activeTab.session.host}:
-                      {activeTab.session.port}
-                    </span>
-                  </div>
-                  <div className="flex-1 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-center text-xs text-zinc-400">
-                    {t("workspace.tab_placeholder", {
-                      protocol: activeTab.session.protocol,
-                      host: activeTab.session.host,
-                      port: activeTab.session.port,
-                    })}
-                  </div>
-                </section>
-              </div>
-
-              {/* Console Panel (RF-11 / RF-14) */}
-              {config.ui_show_command_panel && (
-                <section className="h-32 shrink-0 border-t border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/60 flex flex-col">
-                  <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
-                    {t("workspace.panel_console")}
-                  </div>
-                  <div className="flex-1 font-mono text-xs text-zinc-400">
-                    {t("workspace.phase2_hint")}
-                  </div>
-                </section>
-              )}
-
-              {/* Transfer Queue Panel (RF-11 / RF-16) */}
-              {config.ui_show_queue_panel && (
-                <section className="h-32 shrink-0 border-t border-zinc-200 dark:border-zinc-800 p-3 bg-white dark:bg-zinc-950 flex flex-col">
-                  <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
-                    {t("workspace.panel_queue")}
-                  </div>
-                  <div className="flex-1 text-xs text-zinc-400">
-                    {t("workspace.phase2_hint")}
-                  </div>
-                </section>
-              )}
-            </div>
+            tabs.map((tab) => (
+              <SessionWorkspace
+                key={tab.tabId}
+                tab={tab}
+                isActive={tab.tabId === activeTabId}
+              />
+            ))
           )}
         </main>
       </div>

@@ -158,9 +158,10 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
         e.dataTransfer.setData("application/x-cd-id", session.id);
       }}
       onDoubleClick={() => openSessionTab(session)}
-      style={{ paddingLeft: `${depth * 14 + 10}px` }}
-      className="group flex items-center gap-1.5 pr-2 py-1.5 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-pointer transition-colors"
+      style={{ paddingLeft: `${depth * 16 + 6}px` }}
+      className="group flex items-center gap-1.5 pr-2 py-1.5 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default transition-colors"
     >
+      <span className="w-4 shrink-0" />
       {session.protocol === "ssh" ? (
         <Terminal className="w-3.5 h-3.5 text-purple-500 shrink-0" />
       ) : (
@@ -223,6 +224,9 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
         {childFolders.map((folder) => {
           const isOpen = expanded[folder.id] ?? true;
           const isDragOver = dragOverTarget === folder.id;
+          const hasChildren =
+            folders.some((f) => f.parent_id === folder.id) ||
+            filteredSessions.some((s) => s.folder_id === folder.id);
 
           return (
             <div key={folder.id}>
@@ -239,20 +243,24 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 }}
                 onDragLeave={() => setDragOverTarget(null)}
                 onDrop={(e) => handleDropOnFolder(e, folder.id)}
-                style={{ paddingLeft: `${depth * 14 + 6}px` }}
-                className={`group flex items-center gap-1 pr-2 py-1.5 text-xs rounded-md cursor-pointer transition-colors ${
+                style={{ paddingLeft: `${depth * 16 + 6}px` }}
+                className={`group flex items-center gap-1.5 pr-2 py-1.5 text-xs rounded-md cursor-default transition-colors ${
                   isDragOver
                     ? "bg-indigo-100 dark:bg-indigo-950/60 ring-1 ring-indigo-500"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80"
                 }`}
-                onClick={() => toggleFolder(folder.id)}
+                onClick={() => hasChildren && toggleFolder(folder.id)}
               >
-                {isOpen ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                )}
-                {isOpen ? (
+                <span className="w-4 h-4 flex items-center justify-center shrink-0">
+                  {hasChildren ? (
+                    isOpen ? (
+                      <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+                    )
+                  ) : null}
+                </span>
+                {isOpen && hasChildren ? (
                   <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 ) : (
                   <FolderIcon className="w-3.5 h-3.5 text-amber-500 shrink-0" />

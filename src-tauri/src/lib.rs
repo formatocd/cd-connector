@@ -3,6 +3,7 @@ mod crypto;
 mod db;
 mod error;
 mod models;
+mod protocols;
 mod state;
 
 use tauri::Manager;
@@ -49,6 +50,24 @@ pub fn run() {
             commands::portability::commit_import,
             commands::portability::inspect_export_bundle,
             commands::portability::setup_from_json,
+            commands::local_fs::get_default_local_dir,
+            commands::local_fs::local_list_dir,
+            commands::local_fs::local_mkdir,
+            commands::local_fs::local_rename,
+            commands::local_fs::local_delete,
+            commands::local_fs::local_stat,
+            commands::remote::connect_session,
+            commands::remote::disconnect_session,
+            commands::remote::remote_pwd,
+            commands::remote::remote_list_dir,
+            commands::remote::remote_mkdir,
+            commands::remote::remote_rename,
+            commands::remote::remote_delete,
+            commands::remote::remote_chmod,
+            commands::remote::remote_stat,
+            commands::remote::send_raw_command,
+            commands::remote::list_known_hosts,
+            commands::remote::delete_known_host,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running CD Connector");
