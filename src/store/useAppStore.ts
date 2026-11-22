@@ -24,6 +24,8 @@ const DEFAULT_CONFIG: AppConfig = {
   ui_show_local_panel: true,
   ui_show_queue_panel: true,
   ui_show_command_panel: true,
+  terminal_font_family: "Cascadia Code, Consolas, ui-monospace, monospace",
+  terminal_font_size: 13,
 };
 
 interface AppStoreState {

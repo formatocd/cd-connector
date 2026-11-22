@@ -160,9 +160,10 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: config.terminal_font_size || 13,
       fontFamily:
-        'ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace',
+        config.terminal_font_family ||
+        'Cascadia Code, Consolas, ui-monospace, monospace',
       theme: isDarkTheme() ? DARK_THEME : LIGHT_THEME,
       scrollback: 5000,
     });
@@ -243,13 +244,28 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     }
   }, [isActive, tabId]);
 
-  // Sync terminal colors when theme changes
+  // Sync terminal colors & font when settings change
   useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.theme = isDarkTheme() ? DARK_THEME : LIGHT_THEME;
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term) return;
+    term.options.theme = isDarkTheme() ? DARK_THEME : LIGHT_THEME;
+    term.options.fontFamily =
+      config.terminal_font_family ||
+      "Cascadia Code, Consolas, ui-monospace, monospace";
+    term.options.fontSize = config.terminal_font_size || 13;
+    if (fit) {
+      requestAnimationFrame(() => {
+        try {
+          fit.fit();
+          api.sshResize(tabId, term.cols, term.rows).catch(() => {});
+        } catch {
+          // ignore
+        }
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.theme]);
+  }, [config.theme, config.terminal_font_family, config.terminal_font_size, tabId]);
 
   // Listen to backend SSH output & close events
   useEffect(() => {

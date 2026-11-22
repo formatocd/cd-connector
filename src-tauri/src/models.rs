@@ -213,6 +213,18 @@ pub struct AppConfig {
     pub ui_show_local_panel: bool,
     pub ui_show_queue_panel: bool,
     pub ui_show_command_panel: bool,
+    #[serde(default = "default_terminal_font_family")]
+    pub terminal_font_family: String,
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: u16,
+}
+
+fn default_terminal_font_family() -> String {
+    "Cascadia Code, Consolas, ui-monospace, monospace".to_string()
+}
+
+fn default_terminal_font_size() -> u16 {
+    13
 }
 
 impl Default for AppConfig {
@@ -227,6 +239,8 @@ impl Default for AppConfig {
             ui_show_local_panel: true,
             ui_show_queue_panel: true,
             ui_show_command_panel: true,
+            terminal_font_family: default_terminal_font_family(),
+            terminal_font_size: default_terminal_font_size(),
         }
     }
 }

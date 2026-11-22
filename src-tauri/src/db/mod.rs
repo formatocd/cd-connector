@@ -153,6 +153,16 @@ pub fn load_app_config(conn: &Connection) -> AppResult<AppConfig> {
     if let Some(v) = get_config_value(conn, "ui_show_command_panel")? {
         cfg.ui_show_command_panel = v == "true";
     }
+    if let Some(v) = get_config_value(conn, "terminal_font_family")? {
+        if !v.trim().is_empty() {
+            cfg.terminal_font_family = v;
+        }
+    }
+    if let Some(v) = get_config_value(conn, "terminal_font_size")? {
+        if let Ok(n) = v.parse::<u16>() {
+            cfg.terminal_font_size = n.clamp(10, 28);
+        }
+    }
     Ok(cfg)
 }
 
@@ -185,6 +195,12 @@ pub fn save_app_config(conn: &Connection, cfg: &AppConfig) -> AppResult<()> {
         conn,
         "ui_show_command_panel",
         &cfg.ui_show_command_panel.to_string(),
+    )?;
+    set_config_value(conn, "terminal_font_family", &cfg.terminal_font_family)?;
+    set_config_value(
+        conn,
+        "terminal_font_size",
+        &cfg.terminal_font_size.clamp(10, 28).to_string(),
     )?;
     Ok(())
 }
