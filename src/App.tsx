@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import {
-  Disc3,
   PanelLeft,
   Columns2,
   Terminal,
@@ -14,7 +13,8 @@ import {
   Lock,
   Copy,
   X,
-  Server,
+  FolderTree,
+  HelpCircle,
 } from "lucide-react";
 import { api } from "./services/tauri";
 import { useAppStore } from "./store/useAppStore";
@@ -28,6 +28,9 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SessionWorkspace } from "./components/SessionWorkspace";
 import { SshTerminalWorkspace } from "./components/SshTerminalWorkspace";
 import { ConflictModal } from "./components/ConflictModal";
+import { HomePage } from "./components/HomePage";
+import { AboutModal } from "./components/AboutModal";
+import { resolveIconColor } from "./components/IconColorPicker";
 import type {
   ConflictPromptEvent,
   Session,
@@ -59,6 +62,7 @@ export function App() {
   const [showCredentials, setShowCredentials] = useState(false);
   const [showImportExport, setShowImportExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [sessionModal, setSessionModal] = useState<{
     mode: "create" | "edit" | "quick";
     folderId?: string | null;
@@ -180,13 +184,6 @@ export function App() {
             <PanelLeft className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-1.5 pr-2">
-            <Disc3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-xs font-semibold tracking-tight">
-              {t("app.name")}
-            </span>
-          </div>
-
           <button
             type="button"
             onClick={() => setSessionModal({ mode: "quick" })}
@@ -282,6 +279,14 @@ export function App() {
               <Lock className="w-4 h-4" />
             </button>
           )}
+          <button
+            type="button"
+            title={t("toolbar.help")}
+            onClick={() => setShowAbout(true)}
+            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
@@ -315,9 +320,19 @@ export function App() {
                     }`}
                   >
                     {tab.session.protocol === "ssh" ? (
-                      <Terminal className="w-3 h-3 text-purple-500" />
+                      <Terminal
+                        className="w-3 h-3 shrink-0"
+                        style={{
+                          color: resolveIconColor(tab.session.icon_color, "#a855f7"),
+                        }}
+                      />
                     ) : (
-                      <Server className="w-3 h-3 text-indigo-500" />
+                      <FolderTree
+                        className="w-3 h-3 shrink-0"
+                        style={{
+                          color: resolveIconColor(tab.session.icon_color, "#38bdf8"),
+                        }}
+                      />
                     )}
                     <span className="max-w-36 truncate">{tab.session.name}</span>
                     <button
@@ -348,17 +363,7 @@ export function App() {
 
           {/* Workspace Body */}
           {tabs.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-4">
-                <Disc3 className="w-8 h-8" />
-              </div>
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                {t("workspace.welcome_title")}
-              </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-md mt-1.5 leading-relaxed">
-                {t("workspace.welcome_desc")}
-              </p>
-            </div>
+            <HomePage onQuickConnect={() => setSessionModal({ mode: "quick" })} />
           ) : (
             tabs.map((tab) =>
               tab.session.protocol === "ssh" ? (
@@ -387,6 +392,7 @@ export function App() {
         <ImportExportModal onClose={() => setShowImportExport(false)} />
       )}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       {sessionModal && (
         <SessionModal
           mode={sessionModal.mode}

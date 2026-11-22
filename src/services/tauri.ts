@@ -68,6 +68,8 @@ export const api = {
   updateSession: (id: string, input: SessionInput) =>
     invoke<Session>("update_session", { id, input }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  markSessionOpened: (id: string) =>
+    invoke<string>("mark_session_opened", { id }),
 
   // Config
   getAppConfig: () => invoke<AppConfig>("get_app_config"),

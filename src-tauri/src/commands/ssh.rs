@@ -64,9 +64,9 @@ pub async fn ssh_connect(
         });
     };
 
-    // Close any previous SSH terminal on this tab
+    // Close any previous SSH terminal on this tab silently so it doesn't emit a stale disconnect event
     if let Some(prev) = state.ssh_terminals.write().await.remove(&request.tab_id) {
-        let _ = prev.tx.send(SshCommand::Close);
+        let _ = prev.tx.send(SshCommand::Close { silent: true });
     }
 
     let known_hosts = {
@@ -161,7 +161,7 @@ pub async fn ssh_resize(
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
     if let Some(handle) = state.ssh_terminals.write().await.remove(&tab_id) {
-        let _ = handle.tx.send(SshCommand::Close);
+        let _ = handle.tx.send(SshCommand::Close { silent: false });
     }
     Ok(())
 }

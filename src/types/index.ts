@@ -36,12 +36,14 @@ export interface Folder {
   parent_id: string | null;
   name: string;
   sort_order: number;
+  icon_color?: string | null;
 }
 
 export interface FolderInput {
   parent_id: string | null;
   name: string;
   sort_order?: number;
+  icon_color?: string | null;
 }
 
 export type Protocol =
@@ -64,6 +66,8 @@ export interface Session {
   passive_mode: boolean;
   accept_invalid_certs: boolean;
   sort_order: number;
+  icon_color?: string | null;
+  last_opened_at?: string | null;
 }
 
 export interface SessionInput {
@@ -78,6 +82,7 @@ export interface SessionInput {
   passive_mode?: boolean;
   accept_invalid_certs?: boolean;
   sort_order?: number;
+  icon_color?: string | null;
 }
 
 export interface AppConfig {

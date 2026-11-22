@@ -44,6 +44,7 @@ pub fn export_data(state: State<'_, AppState>) -> AppResult<String> {
             parent_id: f.parent_id,
             name: f.name,
             sort_order: f.sort_order,
+            icon_color: f.icon_color,
         })
         .collect();
 
@@ -84,6 +85,7 @@ pub fn export_data(state: State<'_, AppState>) -> AppResult<String> {
             passive_mode: s.passive_mode,
             accept_invalid_certs: s.accept_invalid_certs,
             sort_order: s.sort_order,
+            icon_color: s.icon_color,
         })
         .collect();
 
@@ -168,6 +170,7 @@ pub fn preview_import(
                 parent_id: f.parent_id,
                 name: f.name,
                 sort_order: f.sort_order,
+                icon_color: f.icon_color,
                 conflict_id,
                 action,
             }
@@ -231,6 +234,7 @@ pub fn preview_import(
                 passive_mode: s.passive_mode,
                 accept_invalid_certs: s.accept_invalid_certs,
                 sort_order: s.sort_order,
+                icon_color: s.icon_color,
                 conflict_id,
                 action,
             }
@@ -346,6 +350,7 @@ pub fn commit_import(
                 parent_id: mapped_parent,
                 name: f.name.trim().to_string(),
                 sort_order: f.sort_order,
+                icon_color: f.icon_color,
             };
             if existing_folder_ids.contains(&target_id) {
                 db::update_folder(&tx, &folder)?;
@@ -446,6 +451,8 @@ pub fn commit_import(
             passive_mode: s.passive_mode,
             accept_invalid_certs: s.accept_invalid_certs,
             sort_order: s.sort_order,
+            icon_color: s.icon_color,
+            last_opened_at: None,
         };
 
         if existing_session_ids.contains(&target_id) {
@@ -578,6 +585,7 @@ pub fn setup_from_json(
                 parent_id: f.parent_id,
                 name: f.name.trim().to_string(),
                 sort_order: f.sort_order,
+                icon_color: f.icon_color,
             };
             db::insert_folder(&tx, &folder)?;
             inserted_folders.insert(f.id);
@@ -623,6 +631,8 @@ pub fn setup_from_json(
             passive_mode: s.passive_mode,
             accept_invalid_certs: s.accept_invalid_certs,
             sort_order: s.sort_order,
+            icon_color: s.icon_color,
+            last_opened_at: None,
         };
         db::insert_session(&tx, &session)?;
     }

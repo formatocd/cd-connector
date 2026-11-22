@@ -9,14 +9,16 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Server,
+  FolderTree,
   Terminal,
   Search,
   Play,
+  X,
 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { ConfirmActionModal } from "./FileActionModals";
+import { IconColorPicker, resolveIconColor } from "./IconColorPicker";
 import type { Folder, Protocol, Session } from "../types";
 
 interface SidebarProps {
@@ -55,6 +57,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     undefined
   );
   const [folderNameInput, setFolderNameInput] = useState("");
+  const [folderColorInput, setFolderColorInput] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
@@ -92,9 +95,11 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     await api.createFolder({
       parent_id: creatingFolderParent ?? null,
       name: folderNameInput.trim(),
+      icon_color: folderColorInput,
     });
     setCreatingFolderParent(undefined);
     setFolderNameInput("");
+    setFolderColorInput(null);
     await refreshVaultData();
   };
 
@@ -107,8 +112,39 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
       parent_id: folder.parent_id,
       name: editingFolderName.trim(),
       sort_order: folder.sort_order,
+      icon_color: folder.icon_color ?? null,
     });
     setEditingFolderId(null);
+    await refreshVaultData();
+  };
+
+  const handleChangeFolderColor = async (folder: Folder, hex: string | null) => {
+    await api.updateFolder(folder.id, {
+      parent_id: folder.parent_id,
+      name: folder.name,
+      sort_order: folder.sort_order,
+      icon_color: hex,
+    });
+    setContextMenu(null);
+    await refreshVaultData();
+  };
+
+  const handleChangeSessionColor = async (session: Session, hex: string | null) => {
+    await api.updateSession(session.id, {
+      folder_id: session.folder_id,
+      credential_id: session.credential_id,
+      name: session.name,
+      protocol: session.protocol,
+      host: session.host,
+      port: session.port,
+      remote_initial_path: session.remote_initial_path,
+      local_initial_path: session.local_initial_path,
+      passive_mode: session.passive_mode,
+      accept_invalid_certs: session.accept_invalid_certs,
+      sort_order: session.sort_order,
+      icon_color: hex,
+    });
+    setContextMenu(null);
     await refreshVaultData();
   };
 
@@ -148,6 +184,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
           passive_mode: session.passive_mode,
           accept_invalid_certs: session.accept_invalid_certs,
           sort_order: session.sort_order,
+          icon_color: session.icon_color ?? null,
         });
         await refreshVaultData();
       } else if (kind === "folder") {
@@ -157,6 +194,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
           parent_id: targetFolderId,
           name: folder.name,
           sort_order: folder.sort_order,
+          icon_color: folder.icon_color ?? null,
         });
         await refreshVaultData();
       }
@@ -193,9 +231,15 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     >
       <span className="w-4 shrink-0" />
       {session.protocol === "ssh" ? (
-        <Terminal className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+        <Terminal
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: resolveIconColor(session.icon_color, "#a855f7") }}
+        />
       ) : (
-        <Server className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+        <FolderTree
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: resolveIconColor(session.icon_color, "#38bdf8") }}
+        />
       )}
       <span className="truncate flex-1 font-medium text-zinc-800 dark:text-zinc-200">
         {session.name}
@@ -261,9 +305,15 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                   ) : null}
                 </span>
                 {isOpen && hasChildren ? (
-                  <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <FolderOpen
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: resolveIconColor(folder.icon_color, "#f59e0b") }}
+                  />
                 ) : (
-                  <FolderIcon className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <FolderIcon
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: resolveIconColor(folder.icon_color, "#f59e0b") }}
+                  />
                 )}
 
                 {editingFolderId === folder.id ? (
@@ -338,37 +388,58 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("app.search")}
-            className="w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/70 dark:hover:bg-zinc-800 absolute right-1.5 top-1/2 -translate-y-1/2 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       {creatingFolderParent !== undefined && (
         <form
           onSubmit={handleCreateFolder}
-          className="p-2 border-b border-zinc-200 dark:border-zinc-800 bg-indigo-50/50 dark:bg-indigo-950/20 flex items-center gap-1.5"
+          className="p-2 border-b border-zinc-200 dark:border-zinc-800 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-2"
         >
-          <input
-            type="text"
-            value={folderNameInput}
-            onChange={(e) => setFolderNameInput(e.target.value)}
-            placeholder={t("sidebar.folder_name_placeholder")}
-            autoFocus
-            className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-indigo-400 bg-white dark:bg-zinc-950 focus:outline-none"
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={folderNameInput}
+              onChange={(e) => setFolderNameInput(e.target.value)}
+              placeholder={t("sidebar.folder_name_placeholder")}
+              autoFocus
+              className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-indigo-400 bg-white dark:bg-zinc-950 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              {t("app.create")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreatingFolderParent(undefined);
+                setFolderColorInput(null);
+              }}
+              className="px-1.5 py-1 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            >
+              ✕
+            </button>
+          </div>
+          <IconColorPicker
+            value={folderColorInput}
+            defaultHex="#f59e0b"
+            onChange={setFolderColorInput}
+            compact
           />
-          <button
-            type="submit"
-            className="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
-          >
-            {t("app.create")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCreatingFolderParent(undefined)}
-            className="px-1.5 py-1 text-xs rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
-          >
-            ✕
-          </button>
         </form>
       )}
 
@@ -435,6 +506,18 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 {t("app.edit")}
               </button>
               <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+              <div className="px-3 py-1.5 space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                  {t("sidebar.icon_color")}
+                </div>
+                <IconColorPicker
+                  value={contextMenu.session.icon_color}
+                  defaultHex={contextMenu.session.protocol === "ssh" ? "#a855f7" : "#38bdf8"}
+                  onChange={(hex) => handleChangeSessionColor(contextMenu.session, hex)}
+                  compact
+                />
+              </div>
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
               <button
                 type="button"
                 className={menuDangerClass}
@@ -486,6 +569,18 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                 {t("workspace.rename")}
               </button>
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+              <div className="px-3 py-1.5 space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                  {t("sidebar.icon_color")}
+                </div>
+                <IconColorPicker
+                  value={contextMenu.folder.icon_color}
+                  defaultHex="#f59e0b"
+                  onChange={(hex) => handleChangeFolderColor(contextMenu.folder, hex)}
+                  compact
+                />
+              </div>
               <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
               <button
                 type="button"

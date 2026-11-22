@@ -54,7 +54,8 @@
     "credentials": "Credentials",
     "import_export": "Import / Export",
     "settings": "Settings",
-    "lock_vault": "Lock vault"
+    "lock_vault": "Lock vault",
+    "help": "Help / About"
   },
   "sidebar": {
     "title": "Sessions",
@@ -65,7 +66,8 @@
     "root_drop": "Drop here to move to root",
     "confirm_delete_folder": "Delete folder \"{{name}}\"? Subfolders will be deleted and sessions will move to root.",
     "confirm_delete_session": "Delete session \"{{name}}\"?",
-    "connect": "Connect"
+    "connect": "Connect",
+    "icon_color": "Icon color"
   },
   "credentials": {
     "title": "Credentials Manager",
@@ -234,7 +236,8 @@
     "ctx_download": "Download to local",
     "drop_to_upload": "Drop files or folders here to upload",
     "drop_to_download": "Drop files or folders here to download",
-    "open_ssh_here": "Open SSH Terminal"
+    "open_ssh_here": "Open SSH Terminal",
+    "ssh_disconnected_hint": "Press [R] to reconnect or [Enter] to close tab..."
   },
   "queue": {
     "filter_all": "All",
@@ -288,5 +291,26 @@
     "title": "Authentication Required",
     "subtitle": "Enter credentials to connect to {{host}}:{{port}} (not saved to vault).",
     "anonymous_button": "Connect anonymously"
+  },
+  "home": {
+    "search_placeholder": "Search sessions by name or host...",
+    "recent_title": "Recent sessions",
+    "results_title": "Matching sessions",
+    "no_recent": "No sessions opened yet. Pick a session from the sidebar or use Quick Connect.",
+    "no_results": "No sessions match your search."
+  },
+  "about": {
+    "title": "About CD Connector",
+    "version": "Version",
+    "author": "Author",
+    "license": "License",
+    "repository": "Repository",
+    "protocols": "Supported protocols",
+    "shortcuts_title": "Keyboard shortcuts",
+    "sc_sidebar": "Toggle sessions sidebar",
+    "sc_local": "Toggle local explorer",
+    "sc_console": "Toggle console / log",
+    "sc_queue": "Toggle transfer queue",
+    "sc_terminal_cp": "Copy / Paste in SSH terminal"
   }
 }

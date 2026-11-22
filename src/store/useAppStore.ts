@@ -116,10 +116,23 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   openSessionTab: (session, transientAuth) => {
     const tabId = crypto.randomUUID();
+    const isSaved =
+      !session.id.startsWith("quick-") && !session.id.startsWith("ssh-from-");
+    const nowIso = new Date().toISOString();
+
     set((state) => ({
       tabs: [...state.tabs, { tabId, session, transientAuth }],
       activeTabId: tabId,
+      sessions: isSaved
+        ? state.sessions.map((s) =>
+            s.id === session.id ? { ...s, last_opened_at: nowIso } : s
+          )
+        : state.sessions,
     }));
+
+    if (isSaved) {
+      api.markSessionOpened(session.id).catch(() => {});
+    }
   },
 
   closeTab: (tabId) => {

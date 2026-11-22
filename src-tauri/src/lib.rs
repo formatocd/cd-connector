@@ -45,6 +45,7 @@ pub fn run() {
             commands::sessions::create_session,
             commands::sessions::update_session,
             commands::sessions::delete_session,
+            commands::sessions::mark_session_opened,
             commands::config::get_app_config,
             commands::config::update_app_config,
             commands::portability::export_data,

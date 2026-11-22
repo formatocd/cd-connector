@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  Server,
+  FolderTree,
+  Terminal,
   X,
   FolderOpen,
   Upload,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { IconColorPicker, resolveIconColor } from "./IconColorPicker";
 import {
   defaultPortForProtocol,
   extractErrorMessage,
@@ -88,6 +90,9 @@ export function SessionModal({
   const [passiveMode, setPassiveMode] = useState(session?.passive_mode ?? true);
   const [acceptInvalidCerts, setAcceptInvalidCerts] = useState(
     session?.accept_invalid_certs ?? false
+  );
+  const [iconColor, setIconColor] = useState<string | null>(
+    session?.icon_color ?? null
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -189,6 +194,7 @@ export function SessionModal({
         passive_mode: passiveMode,
         accept_invalid_certs: acceptInvalidCerts,
         sort_order: 0,
+        icon_color: iconColor,
       };
       openSessionTab(
         tempSession,
@@ -252,6 +258,7 @@ export function SessionModal({
         local_initial_path: localPath,
         passive_mode: passiveMode,
         accept_invalid_certs: acceptInvalidCerts,
+        icon_color: iconColor,
       };
 
       const saved =
@@ -294,7 +301,17 @@ export function SessionModal({
       <div className="w-full max-w-xl max-h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <Server className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            {protocol === "ssh" ? (
+              <Terminal
+                className="w-5 h-5"
+                style={{ color: resolveIconColor(iconColor, "#a855f7") }}
+              />
+            ) : (
+              <FolderTree
+                className="w-5 h-5"
+                style={{ color: resolveIconColor(iconColor, "#38bdf8") }}
+              />
+            )}
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
               {title}
             </h2>
@@ -313,38 +330,51 @@ export function SessionModal({
           className="p-6 space-y-4 overflow-y-auto"
         >
           {mode !== "quick" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                  {t("session.name")} *
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                    {t("session.name")} *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("session.name_placeholder")}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                    {t("session.folder")}
+                  </label>
+                  <select
+                    value={folderId}
+                    onChange={(e) => setFolderId(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">{t("session.folder_root")}</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                  {t("sidebar.icon_color")}
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={t("session.name_placeholder")}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                <IconColorPicker
+                  value={iconColor}
+                  defaultHex={protocol === "ssh" ? "#a855f7" : "#38bdf8"}
+                  onChange={setIconColor}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                  {t("session.folder")}
-                </label>
-                <select
-                  value={folderId}
-                  onChange={(e) => setFolderId(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">{t("session.folder_root")}</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            </>
           )}
 
           <div className="grid grid-cols-12 gap-3">

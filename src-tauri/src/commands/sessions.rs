@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::collections::HashMap;
 use tauri::State;
 use uuid::Uuid;
@@ -31,6 +32,7 @@ pub fn create_folder(state: State<'_, AppState>, input: FolderInput) -> AppResul
         parent_id: input.parent_id,
         name,
         sort_order: input.sort_order.unwrap_or(0),
+        icon_color: input.icon_color,
     };
     let conn = state
         .db
@@ -83,6 +85,7 @@ pub fn update_folder(
         parent_id: input.parent_id,
         name,
         sort_order: input.sort_order.unwrap_or(0),
+        icon_color: input.icon_color,
     };
     db::update_folder(&conn, &folder)?;
     Ok(folder)
@@ -134,6 +137,8 @@ pub fn create_session(state: State<'_, AppState>, input: SessionInput) -> AppRes
         passive_mode: input.passive_mode.unwrap_or(true),
         accept_invalid_certs: input.accept_invalid_certs.unwrap_or(false),
         sort_order: input.sort_order.unwrap_or(0),
+        icon_color: input.icon_color,
+        last_opened_at: None,
     };
 
     let conn = state
@@ -172,6 +177,8 @@ pub fn update_session(
         passive_mode: input.passive_mode.unwrap_or(true),
         accept_invalid_certs: input.accept_invalid_certs.unwrap_or(false),
         sort_order: input.sort_order.unwrap_or(0),
+        icon_color: input.icon_color,
+        last_opened_at: None,
     };
 
     let conn = state
@@ -190,4 +197,16 @@ pub fn delete_session(state: State<'_, AppState>, id: String) -> AppResult<()> {
         .lock()
         .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
     db::delete_session(&conn, &id)
+}
+
+#[tauri::command]
+pub fn mark_session_opened(state: State<'_, AppState>, id: String) -> AppResult<String> {
+    let _ = state.get_master_key()?;
+    let now = Utc::now().to_rfc3339();
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    db::touch_session_last_opened(&conn, &id, &now)?;
+    Ok(now)
 }

@@ -54,7 +54,8 @@
     "credentials": "Credenciales",
     "import_export": "Importar / Exportar",
     "settings": "Ajustes",
-    "lock_vault": "Bloquear bóveda"
+    "lock_vault": "Bloquear bóveda",
+    "help": "Ayuda / Acerca de"
   },
   "sidebar": {
     "title": "Sesiones",
@@ -65,7 +66,8 @@
     "root_drop": "Soltar aquí para mover a la raíz",
     "confirm_delete_folder": "¿Eliminar la carpeta \"{{name}}\"? Las subcarpetas se eliminarán y las sesiones pasarán a la raíz.",
     "confirm_delete_session": "¿Eliminar la sesión \"{{name}}\"?",
-    "connect": "Conectar"
+    "connect": "Conectar",
+    "icon_color": "Color del icono"
   },
   "credentials": {
     "title": "Gestor de Credenciales",
@@ -234,7 +236,8 @@
     "ctx_download": "Descargar a local",
     "drop_to_upload": "Suelta aquí archivos o carpetas para subir",
     "drop_to_download": "Suelta aquí archivos o carpetas para descargar",
-    "open_ssh_here": "Abrir terminal SSH"
+    "open_ssh_here": "Abrir terminal SSH",
+    "ssh_disconnected_hint": "Pulsa [R] para reconectar o [Intro] para cerrar la pestaña..."
   },
   "queue": {
     "filter_all": "Todas",
@@ -288,5 +291,26 @@
     "title": "Autenticación requerida",
     "subtitle": "Introduce las credenciales para conectar a {{host}}:{{port}} (no se guardarán en la bóveda).",
     "anonymous_button": "Conectar como anónimo"
+  },
+  "home": {
+    "search_placeholder": "Buscar sesiones por nombre o host...",
+    "recent_title": "Últimas sesiones abiertas",
+    "results_title": "Sesiones encontradas",
+    "no_recent": "Aún no has abierto ninguna sesión. Selecciona una del panel lateral o usa Conexión rápida.",
+    "no_results": "No hay sesiones que coincidan con tu búsqueda."
+  },
+  "about": {
+    "title": "Acerca de CD Connector",
+    "version": "Versión",
+    "author": "Autor",
+    "license": "Licencia",
+    "repository": "Repositorio",
+    "protocols": "Protocolos soportados",
+    "shortcuts_title": "Atajos de teclado",
+    "sc_sidebar": "Mostrar/Ocultar sesiones",
+    "sc_local": "Mostrar/Ocultar explorador local",
+    "sc_console": "Mostrar/Ocultar consola",
+    "sc_queue": "Mostrar/Ocultar cola de transferencias",
+    "sc_terminal_cp": "Copiar / Pegar en terminal SSH"
   }
 }
