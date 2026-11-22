@@ -1,10 +1,15 @@
 {
   "name": "cd-connector",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Cross-platform FTP, FTPS, SFTP & SSH file transfer client",
   "author": "Carlos Durán <formatocd>",
   "license": "MIT",
+  "homepage": "https://github.com/formatocd/cd-connector",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/formatocd/cd-connector.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

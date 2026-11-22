@@ -36,7 +36,10 @@
     "import_password_required": "Enter the master password used when exporting the file.",
     "reuse_password": "Use the same master password for this installation",
     "new_vault_mode": "Security mode for this new database",
-    "restore_button": "Create database & import"
+    "restore_button": "Create database & import",
+    "preferences_title": "Default preferences",
+    "yes": "Yes",
+    "no": "No"
   },
   "unlock": {
     "title": "Vault Locked",
