@@ -97,6 +97,7 @@ export interface AppConfig {
   ui_show_command_panel: boolean;
   terminal_font_family: string;
   terminal_font_size: number;
+  terminal_copy_on_select: boolean;
 }
 
 export type ImportAction = "import" | "overwrite" | "skip";

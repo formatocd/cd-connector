@@ -194,6 +194,9 @@ pub fn load_app_config(conn: &Connection) -> AppResult<AppConfig> {
             cfg.terminal_font_size = n.clamp(10, 28);
         }
     }
+    if let Some(v) = get_config_value(conn, "terminal_copy_on_select")? {
+        cfg.terminal_copy_on_select = v == "true";
+    }
     Ok(cfg)
 }
 
@@ -232,6 +235,11 @@ pub fn save_app_config(conn: &Connection, cfg: &AppConfig) -> AppResult<()> {
         conn,
         "terminal_font_size",
         &cfg.terminal_font_size.clamp(10, 28).to_string(),
+    )?;
+    set_config_value(
+        conn,
+        "terminal_copy_on_select",
+        &cfg.terminal_copy_on_select.to_string(),
     )?;
     Ok(())
 }

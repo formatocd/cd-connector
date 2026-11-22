@@ -161,6 +161,7 @@
     "terminal": "SSH Terminal",
     "terminal_font_family": "Font family (any installed monospace/Nerd font)",
     "terminal_font_size": "Font size (px)",
+    "terminal_copy_on_select": "Automatically copy selected text to clipboard",
     "security": "Vault Security",
     "current_mode": "Current mode",
     "migrate_to_a": "Enable Master Password (Mode A)",

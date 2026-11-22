@@ -161,6 +161,7 @@
     "terminal": "Terminal SSH",
     "terminal_font_family": "Tipo de fuente (cualquier fuente monoespaciada / Nerd Font)",
     "terminal_font_size": "Tamaño de fuente (px)",
+    "terminal_copy_on_select": "Copiar automáticamente al seleccionar texto",
     "security": "Seguridad de la Bóveda",
     "current_mode": "Modo actual",
     "migrate_to_a": "Activar Contraseña Maestra (Modo A)",

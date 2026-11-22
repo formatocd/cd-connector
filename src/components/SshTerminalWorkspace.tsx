@@ -83,6 +83,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
   const connStateRef = useRef<ConnectionState>("idle");
   const connectRef = useRef<() => void>(() => {});
   const closeTabRef = useRef<() => void>(() => {});
+  const copyOnSelectRef = useRef<boolean>(config.terminal_copy_on_select);
 
   useEffect(() => {
     connStateRef.current = connState;
@@ -91,6 +92,10 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
   useEffect(() => {
     closeTabRef.current = () => closeTab(tabId);
   }, [closeTab, tabId]);
+
+  useEffect(() => {
+    copyOnSelectRef.current = config.terminal_copy_on_select;
+  }, [config.terminal_copy_on_select]);
 
   const linkedCred = session.credential_id
     ? credentials.find((c) => c.id === session.credential_id) ?? null
@@ -209,6 +214,15 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
       return true;
     });
 
+    const selectionDisposable = term.onSelectionChange(() => {
+      if (copyOnSelectRef.current && term.hasSelection()) {
+        const text = term.getSelection();
+        if (text) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+      }
+    });
+
     const dataDisposable = term.onData((data) => {
       if (connStateRef.current === "disconnected" || connStateRef.current === "error") {
         if (data === "r" || data === "R") {
@@ -246,6 +260,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     return () => {
       window.clearTimeout(connectTimer);
       resizeObserver.disconnect();
+      selectionDisposable.dispose();
       dataDisposable.dispose();
       term.dispose();
       termRef.current = null;

@@ -225,6 +225,8 @@ pub struct AppConfig {
     pub terminal_font_family: String,
     #[serde(default = "default_terminal_font_size")]
     pub terminal_font_size: u16,
+    #[serde(default = "default_true")]
+    pub terminal_copy_on_select: bool,
 }
 
 fn default_terminal_font_family() -> String {
@@ -249,6 +251,7 @@ impl Default for AppConfig {
             ui_show_command_panel: true,
             terminal_font_family: default_terminal_font_family(),
             terminal_font_size: default_terminal_font_size(),
+            terminal_copy_on_select: true,
         }
     }
 }
