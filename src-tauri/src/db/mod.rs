@@ -401,11 +401,68 @@ pub fn update_folder(conn: &Connection, folder: &Folder) -> AppResult<()> {
     Ok(())
 }
 
-pub fn delete_folder(conn: &Connection, id: &str) -> AppResult<()> {
-    let deleted = conn.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
-    if deleted == 0 {
-        return Err(AppError::NotFound(format!("Folder {id}")));
+pub fn delete_folder(conn: &mut Connection, id: &str, delete_children: bool) -> AppResult<()> {
+    let parent_id: Option<String> = conn
+        .query_row(
+            "SELECT parent_id FROM folders WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("Folder {id}")))?;
+
+    let all_folders = list_folders(conn)?;
+    let tx = conn.transaction()?;
+
+    if delete_children {
+        // Collect target folder and all descendant folder IDs
+        let mut to_delete = vec![id.to_string()];
+        let mut idx = 0;
+        while idx < to_delete.len() {
+            let current = to_delete[idx].clone();
+            for f in &all_folders {
+                if f.parent_id.as_deref() == Some(current.as_str()) {
+                    to_delete.push(f.id.clone());
+                }
+            }
+            idx += 1;
+        }
+
+        // Delete all sessions inside these folders (and clean up private credentials)
+        for fid in &to_delete {
+            let mut stmt =
+                tx.prepare("SELECT id, credential_id FROM sessions WHERE folder_id = ?1")?;
+            let sess_rows: Vec<(String, Option<String>)> = stmt
+                .query_map(params![fid], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(stmt);
+
+            for (sid, cid) in sess_rows {
+                tx.execute("DELETE FROM sessions WHERE id = ?1", params![sid])?;
+                if let Some(cred_id) = cid {
+                    let _ = tx.execute(
+                        "DELETE FROM credentials WHERE id = ?1 AND reusable = 0",
+                        params![cred_id],
+                    );
+                }
+            }
+        }
+
+        tx.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
+    } else {
+        // Move direct children (subfolders and sessions) up one level to parent_id
+        tx.execute(
+            "UPDATE folders SET parent_id = ?2 WHERE parent_id = ?1",
+            params![id, parent_id],
+        )?;
+        tx.execute(
+            "UPDATE sessions SET folder_id = ?2 WHERE folder_id = ?1",
+            params![id, parent_id],
+        )?;
+        tx.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
     }
+
+    tx.commit()?;
     Ok(())
 }
 

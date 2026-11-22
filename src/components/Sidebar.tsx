@@ -64,6 +64,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
   >(null);
+  const [deleteFolderChildren, setDeleteFolderChildren] = useState(false);
   const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -151,9 +152,11 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     const target = pendingDelete;
+    const cascade = deleteFolderChildren;
     setPendingDelete(null);
+    setDeleteFolderChildren(false);
     if (target.kind === "folder") {
-      await api.deleteFolder(target.item.id);
+      await api.deleteFolder(target.item.id, cascade);
     } else {
       await api.deleteSession(target.item.id);
     }
@@ -586,6 +589,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 type="button"
                 className={menuDangerClass}
                 onClick={() => {
+                  setDeleteFolderChildren(false);
                   setPendingDelete({ kind: "folder", item: contextMenu.folder });
                   setContextMenu(null);
                 }}
@@ -634,8 +638,18 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
               ? t("sidebar.confirm_delete_folder", { name: pendingDelete.item.name })
               : t("sidebar.confirm_delete_session", { name: pendingDelete.item.name })
           }
+          checkboxLabel={
+            pendingDelete.kind === "folder"
+              ? t("sidebar.delete_folder_children")
+              : undefined
+          }
+          checkboxChecked={deleteFolderChildren}
+          onCheckboxChange={setDeleteFolderChildren}
           onConfirm={confirmDelete}
-          onCancel={() => setPendingDelete(null)}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteFolderChildren(false);
+          }}
         />
       )}
     </aside>

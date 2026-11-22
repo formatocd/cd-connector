@@ -60,7 +60,8 @@ export const api = {
     invoke<Folder>("create_folder", { input }),
   updateFolder: (id: string, input: FolderInput) =>
     invoke<Folder>("update_folder", { id, input }),
-  deleteFolder: (id: string) => invoke<void>("delete_folder", { id }),
+  deleteFolder: (id: string, deleteChildren = false) =>
+    invoke<void>("delete_folder", { id, deleteChildren }),
 
   // Sessions
   listSessions: () => invoke<Session[]>("list_sessions"),

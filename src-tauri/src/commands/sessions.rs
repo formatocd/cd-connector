@@ -92,13 +92,17 @@ pub fn update_folder(
 }
 
 #[tauri::command]
-pub fn delete_folder(state: State<'_, AppState>, id: String) -> AppResult<()> {
+pub fn delete_folder(
+    state: State<'_, AppState>,
+    id: String,
+    delete_children: Option<bool>,
+) -> AppResult<()> {
     let _ = state.get_master_key()?;
-    let conn = state
+    let mut conn = state
         .db
         .lock()
         .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-    db::delete_folder(&conn, &id)
+    db::delete_folder(&mut conn, &id, delete_children.unwrap_or(false))
 }
 
 // --- Sessions ---

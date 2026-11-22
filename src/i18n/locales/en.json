@@ -64,7 +64,8 @@
     "folder_name_placeholder": "Folder name",
     "empty": "No saved sessions yet. Create a session or folder to get started.",
     "root_drop": "Drop here to move to root",
-    "confirm_delete_folder": "Delete folder \"{{name}}\"? Subfolders will be deleted and sessions will move to root.",
+    "confirm_delete_folder": "Delete folder \"{{name}}\"? By default, its contents will move up one level.",
+    "delete_folder_children": "Also delete all subfolders and sessions inside",
     "confirm_delete_session": "Delete session \"{{name}}\"?",
     "connect": "Connect",
     "icon_color": "Icon color"

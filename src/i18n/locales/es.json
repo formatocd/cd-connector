@@ -64,7 +64,8 @@
     "folder_name_placeholder": "Nombre de la carpeta",
     "empty": "Aún no tienes sesiones guardadas. Crea una sesión o carpeta para empezar.",
     "root_drop": "Soltar aquí para mover a la raíz",
-    "confirm_delete_folder": "¿Eliminar la carpeta \"{{name}}\"? Las subcarpetas se eliminarán y las sesiones pasarán a la raíz.",
+    "confirm_delete_folder": "¿Eliminar la carpeta \"{{name}}\"? Por defecto, su contenido subirá un nivel.",
+    "delete_folder_children": "Eliminar también todas las subcarpetas y sesiones contenidas",
     "confirm_delete_session": "¿Eliminar la sesión \"{{name}}\"?",
     "connect": "Conectar",
     "icon_color": "Color del icono"
