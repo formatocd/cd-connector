@@ -7,6 +7,7 @@ import type {
   CredentialInput,
   CredentialSummary,
   EnqueueTransferRequest,
+  ExportOptions,
   ExportSummary,
   FileEntry,
   Folder,
@@ -77,7 +78,8 @@ export const api = {
     invoke<AppConfig>("update_app_config", { config }),
 
   // Portability
-  exportData: () => invoke<string>("export_data"),
+  exportData: (options: ExportOptions) =>
+    invoke<string>("export_data", { options }),
   previewImport: (rawJson: string, importPassword?: string) =>
     invoke<ImportPreview>("preview_import", {
       rawJson,

@@ -161,6 +161,12 @@ export interface ImportResult {
   sessions_imported: number;
 }
 
+export interface ExportOptions {
+  include_usernames: boolean;
+  include_secrets: boolean;
+  export_password?: string;
+}
+
 export interface ExportSummary {
   encrypted: boolean;
   exported_at: string;

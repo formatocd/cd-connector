@@ -25,9 +25,13 @@ interface ImportExportModalProps {
 
 export function ImportExportModal({ onClose }: ImportExportModalProps) {
   const { t } = useTranslation();
-  const { security, refreshVaultData } = useAppStore();
+  const { refreshVaultData } = useAppStore();
 
   const [tab, setTab] = useState<"export" | "import">("export");
+  const [includeUsernames, setIncludeUsernames] = useState(true);
+  const [includeSecrets, setIncludeSecrets] = useState(false);
+  const [exportPassword, setExportPassword] = useState("");
+  const [exportPasswordConfirm, setExportPasswordConfirm] = useState("");
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   // Import state
@@ -40,12 +44,29 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const handleExport = async () => {
+  const handleExport = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError(null);
     setExportMessage(null);
+
+    if (includeSecrets) {
+      if (exportPassword.length < 4) {
+        setError(t("setup.password_short"));
+        return;
+      }
+      if (exportPassword !== exportPasswordConfirm) {
+        setError(t("setup.password_mismatch"));
+        return;
+      }
+    }
+
     setBusy(true);
     try {
-      const json = await api.exportData();
+      const json = await api.exportData({
+        include_usernames: includeUsernames,
+        include_secrets: includeSecrets,
+        export_password: includeSecrets ? exportPassword : undefined,
+      });
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -55,6 +76,8 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
       a.click();
       URL.revokeObjectURL(url);
       setExportMessage(t("portability.export_success"));
+      setExportPassword("");
+      setExportPasswordConfirm("");
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -177,12 +200,72 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {tab === "export" ? (
-            <div className="space-y-4">
+            <form onSubmit={handleExport} className="space-y-4">
               <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                {security.mode === "master_password"
-                  ? t("portability.export_mode_a_info")
-                  : t("portability.export_mode_b_info")}
+                {t("portability.export_desc")}
               </div>
+
+              <div className="space-y-2.5 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <label className="flex items-center gap-2.5 text-xs text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeUsernames}
+                    onChange={(e) => setIncludeUsernames(e.target.checked)}
+                    className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  {t("portability.export_include_usernames")}
+                </label>
+
+                <label className="flex items-center gap-2.5 text-xs text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeSecrets}
+                    onChange={(e) => {
+                      setIncludeSecrets(e.target.checked);
+                      setError(null);
+                    }}
+                    className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  {t("portability.export_include_secrets")}
+                </label>
+
+                {includeSecrets && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        {t("portability.export_password_label")} *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={exportPassword}
+                        onChange={(e) => setExportPassword(e.target.value)}
+                        placeholder={t("portability.export_password_placeholder")}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        {t("portability.export_password_confirm")} *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={exportPasswordConfirm}
+                        onChange={(e) => setExportPasswordConfirm(e.target.value)}
+                        placeholder={t("portability.export_password_placeholder")}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-3 py-2">
+                  {error}
+                </div>
+              )}
 
               {exportMessage && (
                 <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2">
@@ -192,15 +275,14 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
               )}
 
               <button
-                type="button"
+                type="submit"
                 disabled={busy}
-                onClick={handleExport}
                 className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 {t("portability.export_button")}
               </button>
-            </div>
+            </form>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-3">

@@ -258,6 +258,13 @@ impl Default for AppConfig {
 
 // --- Portability (Export / Import) ---
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportOptions {
+    pub include_usernames: bool,
+    pub include_secrets: bool,
+    pub export_password: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportFolder {
     pub id: String,

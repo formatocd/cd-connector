@@ -9,32 +9,34 @@ use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     CredentialRow, CredentialSecretPayload, ExportBundle, ExportCredential, ExportFolder,
-    ExportSession, ExportSummary, Folder, ImportAction, ImportCommitRequest, ImportPreview,
-    ImportPreviewCredential, ImportPreviewFolder, ImportPreviewSession, ImportResult, SecurityMode,
-    SecurityStatus, Session,
+    ExportOptions, ExportSession, ExportSummary, Folder, ImportAction, ImportCommitRequest,
+    ImportPreview, ImportPreviewCredential, ImportPreviewFolder, ImportPreviewSession,
+    ImportResult, SecurityMode, SecurityStatus, Session,
 };
 use crate::state::AppState;
 
 #[tauri::command]
-pub fn export_data(state: State<'_, AppState>) -> AppResult<String> {
-    let _ = state.get_master_key()?;
+pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppResult<String> {
+    let local_key = state.get_master_key()?;
     let conn = state
         .db
         .lock()
         .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
-    let mode = db::get_security_mode(&conn)?.ok_or(AppError::SecurityNotInitialized)?;
-    let encrypted = mode == SecurityMode::MasterPassword;
-
-    let salt_b64 = if encrypted {
-        db::get_config_value(&conn, "salt")?
+    let encrypted = options.include_secrets;
+    let (export_key, salt_b64, verification_token) = if encrypted {
+        let pwd = options.export_password.unwrap_or_default();
+        if pwd.len() < 4 {
+            return Err(AppError::Validation(
+                "Export encryption password must be at least 4 characters long".into(),
+            ));
+        }
+        let salt = crypto::generate_salt();
+        let key = crypto::derive_key(&pwd, &salt)?;
+        let token = crypto::create_verification_token(&key)?;
+        (Some(key), Some(B64.encode(salt)), Some(token))
     } else {
-        None
-    };
-    let verification_token = if encrypted {
-        db::get_config_value(&conn, "verification_hash")?
-    } else {
-        None
+        (None, None, None)
     };
 
     let folders = db::list_folders(&conn)?
@@ -48,27 +50,31 @@ pub fn export_data(state: State<'_, AppState>) -> AppResult<String> {
         })
         .collect();
 
-    let credentials = db::list_credential_rows(&conn)?
-        .into_iter()
-        .map(|c| ExportCredential {
+    let mut credentials = Vec::new();
+    for c in db::list_credential_rows(&conn)? {
+        let (encrypted_secret_b64, nonce_b64) = if let Some(ref ekey) = export_key {
+            let plain = crypto::decrypt(&local_key, &c.encrypted_secret, &c.nonce)?;
+            let (ct, nonce) = crypto::encrypt(ekey, &plain)?;
+            (Some(B64.encode(&ct)), Some(B64.encode(&nonce)))
+        } else {
+            (None, None)
+        };
+
+        credentials.push(ExportCredential {
             id: c.id,
             name: c.name,
-            username: c.username,
+            username: if options.include_usernames {
+                c.username
+            } else {
+                String::new()
+            },
             auth_type: c.auth_type,
-            has_passphrase: c.has_passphrase,
+            has_passphrase: if encrypted { c.has_passphrase } else { false },
             reusable: c.reusable,
-            encrypted_secret_b64: if encrypted {
-                Some(B64.encode(&c.encrypted_secret))
-            } else {
-                None
-            },
-            nonce_b64: if encrypted {
-                Some(B64.encode(&c.nonce))
-            } else {
-                None
-            },
-        })
-        .collect();
+            encrypted_secret_b64,
+            nonce_b64,
+        });
+    }
 
     let sessions = db::list_sessions(&conn)?
         .into_iter()
