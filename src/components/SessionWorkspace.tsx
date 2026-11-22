@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { Plug, Unplug } from "lucide-react";
+import { Plug, Unplug, Terminal } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { ConsolePanel } from "./ConsolePanel";
@@ -67,7 +67,7 @@ function joinPath(base: string, name: string, isLocal: boolean): string {
 
 export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
   const { t } = useTranslation();
-  const { config, credentials } = useAppStore();
+  const { config, credentials, openSessionTab } = useAppStore();
   const { session, tabId, transientAuth } = tab;
 
   // Connection state
@@ -393,6 +393,27 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {session.protocol === "sftp" && connState === "connected" && (
+            <button
+              type="button"
+              onClick={() =>
+                openSessionTab(
+                  {
+                    ...session,
+                    id: `ssh-from-${session.id}`,
+                    name: `${session.name} (SSH)`,
+                    protocol: "ssh",
+                    remote_initial_path: remotePath,
+                  },
+                  runtimeAuth ?? undefined
+                )
+              }
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-950/70 cursor-pointer"
+            >
+              <Terminal className="w-3 h-3" />
+              {t("workspace.open_ssh_here")}
+            </button>
+          )}
           {connState === "connected" ? (
             <button
               type="button"

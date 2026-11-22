@@ -213,6 +213,18 @@ pub struct AppConfig {
     pub ui_show_local_panel: bool,
     pub ui_show_queue_panel: bool,
     pub ui_show_command_panel: bool,
+    #[serde(default = "default_terminal_font_family")]
+    pub terminal_font_family: String,
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: u16,
+}
+
+fn default_terminal_font_family() -> String {
+    "Cascadia Code, Consolas, ui-monospace, monospace".to_string()
+}
+
+fn default_terminal_font_size() -> u16 {
+    13
 }
 
 impl Default for AppConfig {
@@ -227,6 +239,8 @@ impl Default for AppConfig {
             ui_show_local_panel: true,
             ui_show_queue_panel: true,
             ui_show_command_panel: true,
+            terminal_font_family: default_terminal_font_family(),
+            terminal_font_size: default_terminal_font_size(),
         }
     }
 }
@@ -522,5 +536,33 @@ pub struct EnqueueTransferRequest {
     pub tab_id: String,
     pub direction: TransferDirection,
     pub items: Vec<EnqueueEntry>,
+}
+
+// --- Phase 4.5: SSH Terminal Emulator ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SshConnectRequest {
+    pub tab_id: String,
+    pub host: String,
+    pub port: u16,
+    pub credential_id: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub initial_dir: Option<String>,
+    pub cols: Option<u32>,
+    pub rows: Option<u32>,
+    pub trust_host_key: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SshDataEvent {
+    pub tab_id: String,
+    pub data_b64: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SshClosedEvent {
+    pub tab_id: String,
+    pub reason: String,
 }
 

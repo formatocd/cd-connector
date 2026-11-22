@@ -5,4 +5,5 @@ pub mod portability;
 pub mod remote;
 pub mod security;
 pub mod sessions;
+pub mod ssh;
 pub mod transfer;

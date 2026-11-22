@@ -18,6 +18,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [maxConcurrent, setMaxConcurrent] = useState(config.max_concurrent_transfers);
   const [uploadLimit, setUploadLimit] = useState(config.upload_limit_kbps);
   const [downloadLimit, setDownloadLimit] = useState(config.download_limit_kbps);
+  const [terminalFontFamily, setTerminalFontFamily] = useState(
+    config.terminal_font_family
+  );
+  const [terminalFontSize, setTerminalFontSize] = useState(
+    config.terminal_font_size
+  );
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   // Security migration state
@@ -39,6 +45,10 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       max_concurrent_transfers: Math.max(1, Number(maxConcurrent) || 1),
       upload_limit_kbps: Math.max(0, Number(uploadLimit) || 0),
       download_limit_kbps: Math.max(0, Number(downloadLimit) || 0),
+      terminal_font_family:
+        terminalFontFamily.trim() ||
+        "Cascadia Code, Consolas, ui-monospace, monospace",
+      terminal_font_size: Math.min(28, Math.max(10, Number(terminalFontSize) || 13)),
     });
     setSavedMsg(t("settings.saved"));
   };
@@ -122,7 +132,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 pt-2">
               {t("settings.transfers")}
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <div>
                 <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                   {t("settings.max_concurrent")}
@@ -160,6 +170,56 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                 />
               </div>
+            </div>
+
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 pt-2">
+              {t("settings.terminal")}
+            </h3>
+            <div className="grid grid-cols-12 gap-3">
+              <div className="col-span-9">
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  {t("settings.terminal_font_family")}
+                </label>
+                <input
+                  type="text"
+                  list="terminal-font-presets"
+                  value={terminalFontFamily}
+                  onChange={(e) => setTerminalFontFamily(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                />
+                <datalist id="terminal-font-presets">
+                  <option value="Cascadia Code, Consolas, monospace" />
+                  <option value="JetBrains Mono, Consolas, monospace" />
+                  <option value="Fira Code, Consolas, monospace" />
+                  <option value="Consolas, monospace" />
+                  <option value="CaskaydiaCove Nerd Font, Cascadia Code, monospace" />
+                  <option value="MesloLGS NF, Menlo, monospace" />
+                  <option value="DejaVu Sans Mono, monospace" />
+                  <option value="Menlo, Monaco, monospace" />
+                </datalist>
+              </div>
+              <div className="col-span-3">
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  {t("settings.terminal_font_size")}
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={28}
+                  value={terminalFontSize}
+                  onChange={(e) => setTerminalFontSize(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                />
+              </div>
+            </div>
+            <div
+              style={{
+                fontFamily: terminalFontFamily,
+                fontSize: `${Math.min(28, Math.max(10, Number(terminalFontSize) || 13))}px`,
+              }}
+              className="px-3 py-2 rounded-lg bg-zinc-950 text-emerald-400 border border-zinc-800 truncate"
+            >
+              carlos@cd-connector:~$ ls -la /var/www/html
             </div>
 
             <div className="flex items-center justify-between pt-1">

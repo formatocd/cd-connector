@@ -24,6 +24,8 @@ const DEFAULT_CONFIG: AppConfig = {
   ui_show_local_panel: true,
   ui_show_queue_panel: true,
   ui_show_command_panel: true,
+  terminal_font_family: "Cascadia Code, Consolas, ui-monospace, monospace",
+  terminal_font_size: 13,
 };
 
 interface AppStoreState {
@@ -122,6 +124,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   closeTab: (tabId) => {
     api.disconnectSession(tabId).catch(() => {});
+    api.sshDisconnect(tabId).catch(() => {});
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.tabId === tabId);
       const nextTabs = state.tabs.filter((t) => t.tabId !== tabId);

@@ -7,6 +7,7 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use crate::crypto::MasterKey;
 use crate::error::{AppError, AppResult};
 use crate::models::AppConfig;
+use crate::protocols::ssh_terminal::SshTerminalHandle;
 use crate::protocols::FileTransferClient;
 use crate::transfer::TransferManager;
 
@@ -17,6 +18,7 @@ pub struct AppState {
     pub master_key: RwLock<Option<MasterKey>>,
     pub app_data_dir: PathBuf,
     pub connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
+    pub ssh_terminals: Arc<AsyncRwLock<HashMap<String, SshTerminalHandle>>>,
     pub transfers: Arc<TransferManager>,
 }
 
@@ -27,6 +29,7 @@ impl AppState {
             master_key: RwLock::new(None),
             app_data_dir,
             connections: Arc::new(AsyncRwLock::new(HashMap::new())),
+            ssh_terminals: Arc::new(AsyncRwLock::new(HashMap::new())),
             transfers: TransferManager::new(
                 config.max_concurrent_transfers,
                 config.upload_limit_kbps,
