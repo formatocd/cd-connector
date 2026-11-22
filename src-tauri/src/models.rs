@@ -370,3 +370,85 @@ pub struct ExportSummary {
     pub sessions_count: usize,
 }
 
+// --- Phase 2: Protocol Engine, File Entries, Console & Known Hosts ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub size: u64,
+    pub modified: Option<String>,
+    pub permissions: Option<String>,
+    pub mode: Option<u32>,
+    pub owner: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogLevel {
+    Command,
+    Response,
+    Info,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionLogEvent {
+    pub tab_id: String,
+    pub timestamp: String,
+    pub level: LogLevel,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnownHost {
+    pub id: String,
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub first_seen_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HostKeyPromptInfo {
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub mismatch: bool,
+    pub previous_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectStatus {
+    Connected,
+    HostKeyPrompt,
+    AuthRequired,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConnectResponse {
+    pub status: ConnectStatus,
+    pub current_dir: Option<String>,
+    pub host_key_info: Option<HostKeyPromptInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectRequest {
+    pub tab_id: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: u16,
+    pub credential_id: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub remote_initial_path: Option<String>,
+    pub passive_mode: Option<bool>,
+    pub accept_invalid_certs: Option<bool>,
+    pub trust_host_key: Option<bool>,
+}
+

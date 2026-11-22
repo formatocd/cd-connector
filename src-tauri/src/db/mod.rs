@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    AppConfig, AuthType, CredentialRow, Folder, Protocol, SecurityMode, Session,
+    AppConfig, AuthType, CredentialRow, Folder, KnownHost, Protocol, SecurityMode, Session,
 };
 
 pub fn init_db(db_path: &Path) -> AppResult<Connection> {
@@ -441,6 +441,56 @@ pub fn delete_session(conn: &Connection, id: &str) -> AppResult<()> {
             "DELETE FROM credentials WHERE id = ?1 AND reusable = 0",
             params![cid],
         );
+    }
+    Ok(())
+}
+
+// --- known_hosts ---
+
+pub fn upsert_known_host(
+    conn: &Connection,
+    id: &str,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    fingerprint: &str,
+    first_seen_at: &str,
+) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO known_hosts (id, host, port, key_type, fingerprint, first_seen_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(host, port, key_type) DO UPDATE SET
+           fingerprint = excluded.fingerprint,
+           first_seen_at = excluded.first_seen_at",
+        params![id, host, port as i64, key_type, fingerprint, first_seen_at],
+    )?;
+    Ok(())
+}
+
+pub fn list_known_hosts(conn: &Connection) -> AppResult<Vec<KnownHost>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, host, port, key_type, fingerprint, first_seen_at
+         FROM known_hosts ORDER BY host COLLATE NOCASE ASC, port ASC",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(KnownHost {
+                id: row.get(0)?,
+                host: row.get(1)?,
+                port: row.get::<_, i64>(2)? as u16,
+                key_type: row.get(3)?,
+                fingerprint: row.get(4)?,
+                first_seen_at: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn delete_known_host(conn: &Connection, id: &str) -> AppResult<()> {
+    let deleted = conn.execute("DELETE FROM known_hosts WHERE id = ?1", params![id])?;
+    if deleted == 0 {
+        return Err(AppError::NotFound(format!("Known host {id}")));
     }
     Ok(())
 }

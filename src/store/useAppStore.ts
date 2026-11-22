@@ -8,6 +8,8 @@ import type {
   OpenTab,
   SecurityStatus,
   Session,
+  SessionLogEvent,
+  TransientAuth,
 } from "../types";
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -31,17 +33,22 @@ interface AppStoreState {
   credentials: CredentialSummary[];
   tabs: OpenTab[];
   activeTabId: string | null;
+  sessionLogs: Record<string, SessionLogEvent[]>;
 
   initialize: () => Promise<void>;
   refreshVaultData: () => Promise<void>;
   setSecurity: (status: SecurityStatus) => void;
   updateConfig: (patch: Partial<AppConfig>) => Promise<void>;
 
-  openSessionTab: (session: Session) => void;
+  openSessionTab: (session: Session, transientAuth?: TransientAuth) => void;
   closeTab: (tabId: string) => void;
   duplicateTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
+  appendSessionLog: (event: SessionLogEvent) => void;
+  clearSessionLogs: (tabId: string) => void;
 }
+
+const MAX_LOGS_PER_TAB = 500;
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   loading: true,
@@ -52,6 +59,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   credentials: [],
   tabs: [],
   activeTabId: null,
+  sessionLogs: {},
 
   initialize: async () => {
     set({ loading: true });
@@ -95,15 +103,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     await api.updateAppConfig(next);
   },
 
-  openSessionTab: (session) => {
+  openSessionTab: (session, transientAuth) => {
     const tabId = crypto.randomUUID();
     set((state) => ({
-      tabs: [...state.tabs, { tabId, session }],
+      tabs: [...state.tabs, { tabId, session, transientAuth }],
       activeTabId: tabId,
     }));
   },
 
   closeTab: (tabId) => {
+    api.disconnectSession(tabId).catch(() => {});
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.tabId === tabId);
       const nextTabs = state.tabs.filter((t) => t.tabId !== tabId);
@@ -115,15 +124,42 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           nextActive = nextTabs[Math.min(idx, nextTabs.length - 1)].tabId;
         }
       }
-      return { tabs: nextTabs, activeTabId: nextActive };
+      const nextLogs = { ...state.sessionLogs };
+      delete nextLogs[tabId];
+      return { tabs: nextTabs, activeTabId: nextActive, sessionLogs: nextLogs };
     });
   },
 
   duplicateTab: (tabId) => {
     const target = get().tabs.find((t) => t.tabId === tabId);
     if (!target) return;
-    get().openSessionTab(target.session);
+    get().openSessionTab(target.session, target.transientAuth);
   },
 
   setActiveTab: (tabId) => set({ activeTabId: tabId }),
+
+  appendSessionLog: (event) => {
+    set((state) => {
+      const prev = state.sessionLogs[event.tab_id] ?? [];
+      const next =
+        prev.length >= MAX_LOGS_PER_TAB
+          ? [...prev.slice(prev.length - MAX_LOGS_PER_TAB + 1), event]
+          : [...prev, event];
+      return {
+        sessionLogs: {
+          ...state.sessionLogs,
+          [event.tab_id]: next,
+        },
+      };
+    });
+  },
+
+  clearSessionLogs: (tabId) => {
+    set((state) => ({
+      sessionLogs: {
+        ...state.sessionLogs,
+        [tabId]: [],
+      },
+    }));
+  },
 }));

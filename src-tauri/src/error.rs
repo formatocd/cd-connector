@@ -29,6 +29,15 @@ pub enum AppError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("Protocol error: {0}")]
+    Protocol(String),
+
+    #[error("Not connected: {0}")]
+    NotConnected(String),
+
+    #[error("Authentication failed: {0}")]
+    AuthFailed(String),
 }
 
 #[derive(Serialize)]
@@ -52,6 +61,9 @@ impl Serialize for AppError {
             AppError::Validation(_) => "VALIDATION_ERROR",
             AppError::Io(_) => "IO_ERROR",
             AppError::Serialization(_) => "SERIALIZATION_ERROR",
+            AppError::Protocol(_) => "PROTOCOL_ERROR",
+            AppError::NotConnected(_) => "NOT_CONNECTED",
+            AppError::AuthFailed(_) => "AUTH_FAILED",
         };
         SerializedError {
             code,
