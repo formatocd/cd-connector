@@ -333,7 +333,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
                     else loadLocalDir(entry.path);
                   }
                 }}
-                className="group hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 cursor-pointer"
+                className="group hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 cursor-default select-none"
               >
                 <td className="px-3 py-1.5 flex items-center gap-2 min-w-0">
                   {entry.is_dir ? (
