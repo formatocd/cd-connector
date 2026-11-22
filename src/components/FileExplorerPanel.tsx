@@ -38,6 +38,8 @@ interface FileExplorerPanelProps {
   onRename: (entry: FileEntry) => void;
   onDelete: (entries: FileEntry[]) => void;
   onProperties: (entry: FileEntry) => void;
+  onTransfer?: (entries: FileEntry[]) => void;
+  onDropFromOpposite?: (entries: FileEntry[]) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -77,6 +79,8 @@ export function FileExplorerPanel({
   onRename,
   onDelete,
   onProperties,
+  onTransfer,
+  onDropFromOpposite,
 }: FileExplorerPanelProps) {
   const { t } = useTranslation();
 
@@ -86,6 +90,7 @@ export function FileExplorerPanel({
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [isDragOverPanel, setIsDragOverPanel] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -241,11 +246,49 @@ export function FileExplorerPanel({
     );
   };
 
+  const handlePanelDragOver = (e: React.DragEvent) => {
+    if (disabled || !onDropFromOpposite) return;
+    if (e.dataTransfer.types.includes("application/x-cd-transfer")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setIsDragOverPanel(true);
+    }
+  };
+
+  const handlePanelDrop = (e: React.DragEvent) => {
+    setIsDragOverPanel(false);
+    if (disabled || !onDropFromOpposite) return;
+    const raw = e.dataTransfer.getData("application/x-cd-transfer");
+    if (!raw) return;
+    e.preventDefault();
+    try {
+      const parsed = JSON.parse(raw) as {
+        source: "local" | "remote";
+        entries: FileEntry[];
+      };
+      const expectedSource = isRemote ? "local" : "remote";
+      if (parsed.source === expectedSource && parsed.entries.length > 0) {
+        onDropFromOpposite(parsed.entries);
+      }
+    } catch {
+      // ignore invalid payload
+    }
+  };
+
   return (
     <section
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="h-full w-full min-w-0 flex flex-col bg-white dark:bg-zinc-950 focus:outline-none"
+      onDragOver={handlePanelDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDragOverPanel(false);
+        }
+      }}
+      onDrop={handlePanelDrop}
+      className={`h-full w-full min-w-0 flex flex-col bg-white dark:bg-zinc-950 focus:outline-none relative ${
+        isDragOverPanel ? "ring-2 ring-inset ring-indigo-500" : ""
+      }`}
     >
       {/* Header & Breadcrumb Bar */}
       <div className="px-2.5 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/40 flex items-center gap-1.5 shrink-0">
@@ -400,6 +443,20 @@ export function FileExplorerPanel({
                       return (
                         <div
                           key={entry.path}
+                          draggable={!disabled}
+                          onDragStart={(e) => {
+                            const itemsToDrag = selectedPaths.has(entry.path)
+                              ? selectedEntries
+                              : [entry];
+                            e.dataTransfer.setData(
+                              "application/x-cd-transfer",
+                              JSON.stringify({
+                                source: isRemote ? "remote" : "local",
+                                entries: itemsToDrag,
+                              })
+                            );
+                            e.dataTransfer.effectAllowed = "copy";
+                          }}
                           style={{
                             position: "absolute",
                             top: 0,
@@ -472,7 +529,16 @@ export function FileExplorerPanel({
           onSelectAll={() =>
             setSelectedPaths(new Set(sortedEntries.map((item) => item.path)))
           }
+          onTransfer={onTransfer}
         />
+      )}
+
+      {isDragOverPanel && (
+        <div className="pointer-events-none absolute inset-0 z-20 bg-indigo-500/10 flex items-center justify-center">
+          <div className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-medium shadow-lg">
+            {isRemote ? t("workspace.drop_to_upload") : t("workspace.drop_to_download")}
+          </div>
+        </div>
       )}
     </section>
   );

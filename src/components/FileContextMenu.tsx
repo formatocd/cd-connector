@@ -9,6 +9,8 @@ import {
   Copy,
   RefreshCw,
   CheckSquare,
+  ArrowUpFromLine,
+  ArrowDownToLine,
 } from "lucide-react";
 import type { FileEntry } from "../types";
 
@@ -32,6 +34,7 @@ interface FileContextMenuProps {
   onCopyPath: (path: string) => void;
   onRefresh: () => void;
   onSelectAll: () => void;
+  onTransfer?: (entries: FileEntry[]) => void;
 }
 
 export function FileContextMenu({
@@ -48,6 +51,7 @@ export function FileContextMenu({
   onCopyPath,
   onRefresh,
   onSelectAll,
+  onTransfer,
 }: FileContextMenuProps) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
@@ -91,6 +95,27 @@ export function FileContextMenu({
     >
       {menu.target && selectedEntries.length > 0 ? (
         <>
+          {onTransfer && (
+            <button
+              type="button"
+              className={itemClass}
+              onClick={() => {
+                onTransfer(selectedEntries);
+                onClose();
+              }}
+            >
+              <span className="flex items-center gap-2 font-medium">
+                {isRemote ? (
+                  <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-500" />
+                ) : (
+                  <ArrowUpFromLine className="w-3.5 h-3.5 text-sky-500" />
+                )}
+                {isRemote ? t("workspace.ctx_download") : t("workspace.ctx_upload")}
+                {selectedEntries.length > 1 ? ` (${selectedEntries.length})` : ""}
+              </span>
+            </button>
+          )}
+
           {single && single.is_dir && (
             <button
               type="button"

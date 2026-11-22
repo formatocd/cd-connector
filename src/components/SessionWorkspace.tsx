@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Plug, Unplug } from "lucide-react";
 import { api } from "../services/tauri";
@@ -8,6 +10,7 @@ import { ConsolePanel } from "./ConsolePanel";
 import { HostKeyModal } from "./HostKeyModal";
 import { AuthPromptModal } from "./AuthPromptModal";
 import { FileExplorerPanel } from "./FileExplorerPanel";
+import { TransferQueuePanel } from "./TransferQueuePanel";
 import {
   ConfirmDeleteModal,
   PropertiesModal,
@@ -90,6 +93,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
 
   // In-app file action modal state
   const [modal, setModal] = useState<ModalState>(null);
+  const [osDragOver, setOsDragOver] = useState(false);
 
   const linkedCred = session.credential_id
     ? credentials.find((c) => c.id === session.credential_id) ?? null
@@ -257,6 +261,101 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
     }
   };
 
+  // Enqueue uploads (Local -> Remote)
+  const handleUploadEntries = useCallback(
+    async (entries: FileEntry[]) => {
+      if (connState !== "connected" || entries.length === 0) return;
+      try {
+        await api.enqueueTransfers({
+          tab_id: tabId,
+          direction: "upload",
+          items: entries.map((e) => ({
+            local_path: e.path,
+            remote_path: joinPath(remotePath, e.name, false),
+            is_dir: e.is_dir,
+          })),
+        });
+      } catch (err) {
+        setRemoteError(extractErrorMessage(err));
+      }
+    },
+    [connState, tabId, remotePath]
+  );
+
+  // Enqueue downloads (Remote -> Local)
+  const handleDownloadEntries = useCallback(
+    async (entries: FileEntry[]) => {
+      if (connState !== "connected" || entries.length === 0 || !localPath) return;
+      try {
+        await api.enqueueTransfers({
+          tab_id: tabId,
+          direction: "download",
+          items: entries.map((e) => ({
+            local_path: joinPath(localPath, e.name, true),
+            remote_path: e.path,
+            is_dir: e.is_dir,
+          })),
+        });
+      } catch (err) {
+        setLocalError(extractErrorMessage(err));
+      }
+    },
+    [connState, tabId, localPath]
+  );
+
+  // Auto-refresh destination panel when a transfer finishes for this tab
+  useEffect(() => {
+    const unlistenPromise = listen<{ tab_id: string; direction: "upload" | "download" }>(
+      "transfer-completed",
+      (event) => {
+        if (event.payload.tab_id !== tabId) return;
+        if (event.payload.direction === "upload") {
+          loadRemoteDir(remotePath);
+        } else {
+          loadLocalDir(localPath);
+        }
+      }
+    );
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [tabId, remotePath, localPath, loadRemoteDir, loadLocalDir]);
+
+  // Native OS-to-App Drag & Drop upload (RF-13)
+  useEffect(() => {
+    if (!isActive) return;
+    const unlistenPromise = getCurrentWebview().onDragDropEvent((event) => {
+      if (connState !== "connected") return;
+      if (event.payload.type === "over" || event.payload.type === "enter") {
+        setOsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setOsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setOsDragOver(false);
+        const paths = event.payload.paths;
+        if (paths.length === 0) return;
+        const items = paths.map((p) => {
+          const name = p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+          return {
+            local_path: p,
+            remote_path: joinPath(remotePath, name, false),
+            is_dir: false, // Backend checks Path::is_dir() automatically
+          };
+        });
+        api
+          .enqueueTransfers({
+            tab_id: tabId,
+            direction: "upload",
+            items,
+          })
+          .catch((err) => setRemoteError(extractErrorMessage(err)));
+      }
+    });
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [isActive, connState, tabId, remotePath]);
+
   const vHandleClass =
     "h-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500/70 active:bg-indigo-500 transition-colors cursor-row-resize";
   const hHandleClass =
@@ -346,6 +445,12 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
                       onProperties={(entry) =>
                         setModal({ kind: "properties", isRemote: false, entry })
                       }
+                      onTransfer={
+                        connState === "connected" ? handleUploadEntries : undefined
+                      }
+                      onDropFromOpposite={
+                        connState === "connected" ? handleDownloadEntries : undefined
+                      }
                     />
                   </Panel>
                   <PanelResizeHandle className={hHandleClass} />
@@ -375,6 +480,8 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
                   onProperties={(entry) =>
                     setModal({ kind: "properties", isRemote: true, entry })
                   }
+                  onTransfer={handleDownloadEntries}
+                  onDropFromOpposite={handleUploadEntries}
                 />
               </Panel>
             </PanelGroup>
@@ -396,20 +503,22 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
           {config.ui_show_queue_panel && (
             <>
               <PanelResizeHandle className={vHandleClass} />
-              <Panel id="queue" order={3} defaultSize={15} minSize={10}>
-                <section className="h-full w-full p-3 bg-white dark:bg-zinc-950 flex flex-col">
-                  <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
-                    {t("workspace.panel_queue")}
-                  </div>
-                  <div className="flex-1 text-xs text-zinc-400">
-                    {t("workspace.queue_placeholder")}
-                  </div>
-                </section>
+              <Panel id="queue" order={3} defaultSize={18} minSize={12}>
+                <TransferQueuePanel />
               </Panel>
             </>
           )}
         </PanelGroup>
       </div>
+
+      {/* Native OS Drag & Drop Upload Overlay */}
+      {osDragOver && (
+        <div className="pointer-events-none fixed inset-0 z-40 bg-indigo-500/10 ring-4 ring-inset ring-indigo-500 flex items-center justify-center">
+          <div className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-sm font-medium shadow-2xl">
+            {t("workspace.drop_to_upload")} ({remotePath})
+          </div>
+        </div>
+      )}
 
       {/* File Action Modals */}
       {modal?.kind === "mkdir" && (

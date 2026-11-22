@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  ConflictAction,
   ConnectRequest,
   ConnectResponse,
   CredentialInput,
   CredentialSummary,
+  EnqueueTransferRequest,
   ExportSummary,
   FileEntry,
   Folder,
@@ -17,6 +19,7 @@ import type {
   SecurityStatus,
   Session,
   SessionInput,
+  TransferItem,
 } from "../types";
 
 export const api = {
@@ -124,4 +127,27 @@ export const api = {
     invoke<string>("send_raw_command", { tabId, command }),
   listKnownHosts: () => invoke<KnownHost[]>("list_known_hosts"),
   deleteKnownHost: (id: string) => invoke<void>("delete_known_host", { id }),
+
+  // Transfer Queue
+  enqueueTransfers: (request: EnqueueTransferRequest) =>
+    invoke<TransferItem[]>("enqueue_transfers", { request }),
+  listTransfers: () => invoke<TransferItem[]>("list_transfers"),
+  pauseTransfer: (id: string) => invoke<void>("pause_transfer", { id }),
+  resumeTransfer: (id: string) => invoke<void>("resume_transfer", { id }),
+  retryTransfer: (id: string) => invoke<void>("retry_transfer", { id }),
+  cancelTransfer: (id: string) => invoke<void>("cancel_transfer", { id }),
+  pauseAllTransfers: () => invoke<void>("pause_all_transfers"),
+  resumeAllTransfers: () => invoke<void>("resume_all_transfers"),
+  cancelAllTransfers: () => invoke<void>("cancel_all_transfers"),
+  clearCompletedTransfers: () => invoke<void>("clear_completed_transfers"),
+  resolveTransferConflict: (
+    transferId: string,
+    action: ConflictAction,
+    applyToAll: boolean
+  ) =>
+    invoke<void>("resolve_transfer_conflict", {
+      transferId,
+      action,
+      applyToAll,
+    }),
 };

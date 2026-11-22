@@ -5,6 +5,7 @@ mod error;
 mod models;
 mod protocols;
 mod state;
+mod transfer;
 
 use tauri::Manager;
 
@@ -21,8 +22,9 @@ pub fn run() {
                 .expect("Failed to resolve app data directory");
             let db_path = app_data_dir.join("cd-connector.db");
             let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
+            let initial_config = db::load_app_config(&conn).unwrap_or_default();
 
-            app.manage(AppState::new(conn, app_data_dir));
+            app.manage(AppState::new(conn, app_data_dir, &initial_config));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +71,17 @@ pub fn run() {
             commands::remote::send_raw_command,
             commands::remote::list_known_hosts,
             commands::remote::delete_known_host,
+            commands::transfer::enqueue_transfers,
+            commands::transfer::list_transfers,
+            commands::transfer::pause_transfer,
+            commands::transfer::resume_transfer,
+            commands::transfer::retry_transfer,
+            commands::transfer::cancel_transfer,
+            commands::transfer::pause_all_transfers,
+            commands::transfer::resume_all_transfers,
+            commands::transfer::cancel_all_transfers,
+            commands::transfer::clear_completed_transfers,
+            commands::transfer::resolve_transfer_conflict,
         ])
         .run(tauri::generate_context!())
         .expect("Error while running CD Connector");

@@ -4,15 +4,19 @@ use russh::client::{self, Config, Handle};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::Disconnect;
 use russh_sftp::client::SftpSession;
-use russh_sftp::protocol::FileAttributes;
+use russh_sftp::protocol::{FileAttributes, OpenFlags};
+use std::io::SeekFrom;
+use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost, Protocol};
 use crate::protocols::{
-    format_posix_permissions, join_remote_path, sort_entries, FileTransferClient, LogEmitter,
-    ResolvedAuth,
+    format_posix_permissions, join_remote_path, sort_entries, ExistingFileInfo,
+    FileTransferClient, LogEmitter, ResolvedAuth, TransferControl, TransferOutcome,
 };
 
 pub enum SftpConnectOutcome {
@@ -395,6 +399,143 @@ impl FileTransferClient for SftpClient {
             .unwrap_or(path)
             .to_string();
         Ok(sftp_attrs_to_entry(name, path.to_string(), &attrs))
+    }
+
+    async fn exists_info(&mut self, path: &str) -> AppResult<Option<ExistingFileInfo>> {
+        match self.sftp.metadata(path).await {
+            Ok(attrs) => Ok(Some(ExistingFileInfo {
+                size: attrs.size.unwrap_or(0),
+                modified_epoch: attrs.mtime.map(|m| m as i64),
+            })),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn upload_file(
+        &mut self,
+        local_path: &Path,
+        remote_path: &str,
+        offset: u64,
+        control: TransferControl,
+    ) -> AppResult<TransferOutcome> {
+        self.logger.info(format!("SFTP upload: {remote_path}"));
+        let mut local_file = tokio::fs::File::open(local_path).await?;
+        if offset > 0 {
+            local_file.seek(SeekFrom::Start(offset)).await?;
+        }
+
+        let flags = if offset == 0 {
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE
+        } else {
+            OpenFlags::CREATE | OpenFlags::WRITE
+        };
+        let mut remote_file = self
+            .sftp
+            .open_with_flags(remote_path, flags)
+            .await
+            .map_err(|e| {
+                self.logger.error(format!("SFTP open remote error: {e}"));
+                AppError::Protocol(e.to_string())
+            })?;
+        if offset > 0 {
+            remote_file.seek(SeekFrom::Start(offset)).await?;
+        }
+
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut transferred = offset;
+        (control.on_progress)(transferred);
+
+        loop {
+            if control.cancel_flag.load(Ordering::Relaxed) {
+                self.logger.info(format!("Upload cancelled: {remote_path}"));
+                return Ok(TransferOutcome::Cancelled);
+            }
+            if control.pause_flag.load(Ordering::Relaxed) {
+                let _ = remote_file.flush().await;
+                self.logger
+                    .info(format!("Upload paused at {transferred} bytes: {remote_path}"));
+                return Ok(TransferOutcome::Paused(transferred));
+            }
+
+            let n = local_file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            control.limiter.acquire(n).await;
+            remote_file.write_all(&buf[..n]).await?;
+            transferred += n as u64;
+            (control.on_progress)(transferred);
+        }
+
+        remote_file.flush().await?;
+        self.logger
+            .response(format!("Upload complete: {remote_path} ({transferred} bytes)"));
+        Ok(TransferOutcome::Completed(transferred))
+    }
+
+    async fn download_file(
+        &mut self,
+        remote_path: &str,
+        local_path: &Path,
+        offset: u64,
+        control: TransferControl,
+    ) -> AppResult<TransferOutcome> {
+        self.logger.info(format!("SFTP download: {remote_path}"));
+        let mut remote_file = self
+            .sftp
+            .open_with_flags(remote_path, OpenFlags::READ)
+            .await
+            .map_err(|e| {
+                self.logger.error(format!("SFTP open remote error: {e}"));
+                AppError::Protocol(e.to_string())
+            })?;
+        if offset > 0 {
+            remote_file.seek(SeekFrom::Start(offset)).await?;
+        }
+
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut local_file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(offset == 0)
+            .open(local_path)
+            .await?;
+        if offset > 0 {
+            local_file.seek(SeekFrom::Start(offset)).await?;
+        }
+
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut transferred = offset;
+        (control.on_progress)(transferred);
+
+        loop {
+            if control.cancel_flag.load(Ordering::Relaxed) {
+                self.logger.info(format!("Download cancelled: {remote_path}"));
+                return Ok(TransferOutcome::Cancelled);
+            }
+            if control.pause_flag.load(Ordering::Relaxed) {
+                let _ = local_file.flush().await;
+                self.logger
+                    .info(format!("Download paused at {transferred} bytes: {remote_path}"));
+                return Ok(TransferOutcome::Paused(transferred));
+            }
+
+            let n = remote_file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            control.limiter.acquire(n).await;
+            local_file.write_all(&buf[..n]).await?;
+            transferred += n as u64;
+            (control.on_progress)(transferred);
+        }
+
+        local_file.flush().await?;
+        self.logger
+            .response(format!("Download complete: {remote_path} ({transferred} bytes)"));
+        Ok(TransferOutcome::Completed(transferred))
     }
 
     async fn send_raw_command(&mut self, _command: &str) -> AppResult<String> {

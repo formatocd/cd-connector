@@ -21,5 +21,10 @@ pub fn update_app_config(state: State<'_, AppState>, config: AppConfig) -> AppRe
         .lock()
         .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
     db::save_app_config(&conn, &config)?;
+    state.transfers.update_limits(
+        config.max_concurrent_transfers,
+        config.upload_limit_kbps,
+        config.download_limit_kbps,
+    );
     Ok(config)
 }

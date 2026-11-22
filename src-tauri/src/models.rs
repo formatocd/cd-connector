@@ -452,3 +452,75 @@ pub struct ConnectRequest {
     pub trust_host_key: Option<bool>,
 }
 
+// --- Phase 4: Transfer Queue & Conflict Resolution ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferDirection {
+    Upload,
+    Download,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferStatus {
+    Queued,
+    InProgress,
+    Paused,
+    WaitingConflict,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictAction {
+    Overwrite,
+    OverwriteIfNewerOrDiffSize,
+    Skip,
+    AutoRename,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferItem {
+    pub id: String,
+    pub tab_id: String,
+    pub direction: TransferDirection,
+    pub file_name: String,
+    pub local_path: String,
+    pub remote_path: String,
+    pub total_bytes: u64,
+    pub transferred_bytes: u64,
+    pub speed_bps: u64,
+    pub eta_seconds: Option<u64>,
+    pub status: TransferStatus,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConflictPromptEvent {
+    pub transfer_id: String,
+    pub tab_id: String,
+    pub direction: TransferDirection,
+    pub file_name: String,
+    pub source_size: u64,
+    pub source_modified: Option<i64>,
+    pub dest_size: u64,
+    pub dest_modified: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnqueueEntry {
+    pub local_path: String,
+    pub remote_path: String,
+    pub is_dir: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnqueueTransferRequest {
+    pub tab_id: String,
+    pub direction: TransferDirection,
+    pub items: Vec<EnqueueEntry>,
+}
+

@@ -6,7 +6,9 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 use crate::crypto::MasterKey;
 use crate::error::{AppError, AppResult};
+use crate::models::AppConfig;
 use crate::protocols::FileTransferClient;
+use crate::transfer::TransferManager;
 
 pub type SharedClient = Arc<AsyncMutex<Box<dyn FileTransferClient>>>;
 
@@ -14,16 +16,22 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub master_key: RwLock<Option<MasterKey>>,
     pub app_data_dir: PathBuf,
-    pub connections: AsyncRwLock<HashMap<String, SharedClient>>,
+    pub connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
+    pub transfers: Arc<TransferManager>,
 }
 
 impl AppState {
-    pub fn new(conn: Connection, app_data_dir: PathBuf) -> Self {
+    pub fn new(conn: Connection, app_data_dir: PathBuf, config: &AppConfig) -> Self {
         Self {
             db: Mutex::new(conn),
             master_key: RwLock::new(None),
             app_data_dir,
-            connections: AsyncRwLock::new(HashMap::new()),
+            connections: Arc::new(AsyncRwLock::new(HashMap::new())),
+            transfers: TransferManager::new(
+                config.max_concurrent_transfers,
+                config.upload_limit_kbps,
+                config.download_limit_kbps,
+            ),
         }
     }
 
