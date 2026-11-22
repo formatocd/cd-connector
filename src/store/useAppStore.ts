@@ -16,7 +16,7 @@ import type {
 
 const DEFAULT_CONFIG: AppConfig = {
   theme: "system",
-  language: "es",
+  language: "en",
   max_concurrent_transfers: 3,
   upload_limit_kbps: 0,
   download_limit_kbps: 0,

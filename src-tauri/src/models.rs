@@ -241,7 +241,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             theme: "system".to_string(),
-            language: "es".to_string(),
+            language: "en".to_string(),
             max_concurrent_transfers: 3,
             upload_limit_kbps: 0,
             download_limit_kbps: 0,

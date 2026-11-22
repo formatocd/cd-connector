@@ -46,7 +46,7 @@ export function AboutModal({ onClose }: AboutModalProps) {
             <div className="flex justify-between gap-3">
               <span className="text-zinc-500">{t("about.version")}</span>
               <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
-                v0.1.0
+                v1.0.0
               </span>
             </div>
             <div className="flex justify-between gap-3">
