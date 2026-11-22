@@ -207,7 +207,7 @@ export function DirectoryTreePane({
             if (!disabled) onNavigate(nodePath);
           }}
           style={{ paddingLeft: `${depth * 16 + 6}px` }}
-          className={`flex items-center gap-1.5 pr-2 py-1 text-xs cursor-default select-none transition-colors ${
+          className={`flex items-center gap-1.5 pr-2 py-0.5 text-xs cursor-default select-none transition-colors ${
             isSelected
               ? "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-950 dark:text-indigo-50 font-medium"
               : "hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300"

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { ConfirmActionModal } from "./FileActionModals";
 import type { Folder, Protocol, Session } from "../types";
 
 interface SidebarProps {
@@ -52,6 +53,9 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
+  >(null);
 
   const toggleFolder = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
@@ -83,19 +87,23 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     await refreshVaultData();
   };
 
-  const handleDeleteFolder = async (folder: Folder) => {
-    if (!window.confirm(t("sidebar.confirm_delete_folder", { name: folder.name }))) {
-      return;
-    }
-    await api.deleteFolder(folder.id);
-    await refreshVaultData();
+  const handleDeleteFolder = (folder: Folder) => {
+    setPendingDelete({ kind: "folder", item: folder });
   };
 
-  const handleDeleteSession = async (session: Session) => {
-    if (!window.confirm(t("sidebar.confirm_delete_session", { name: session.name }))) {
-      return;
+  const handleDeleteSession = (session: Session) => {
+    setPendingDelete({ kind: "session", item: session });
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (target.kind === "folder") {
+      await api.deleteFolder(target.item.id);
+    } else {
+      await api.deleteSession(target.item.id);
     }
-    await api.deleteSession(session.id);
     await refreshVaultData();
   };
 
@@ -159,7 +167,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
       }}
       onDoubleClick={() => openSessionTab(session)}
       style={{ paddingLeft: `${depth * 16 + 6}px` }}
-      className="group flex items-center gap-1.5 pr-2 py-1.5 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default transition-colors"
+      className="group flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default transition-colors"
     >
       <span className="w-4 shrink-0" />
       {session.protocol === "ssh" ? (
@@ -244,7 +252,7 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 onDragLeave={() => setDragOverTarget(null)}
                 onDrop={(e) => handleDropOnFolder(e, folder.id)}
                 style={{ paddingLeft: `${depth * 16 + 6}px` }}
-                className={`group flex items-center gap-1.5 pr-2 py-1.5 text-xs rounded-md cursor-default transition-colors ${
+                className={`group flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md cursor-default transition-colors ${
                   isDragOver
                     ? "bg-indigo-100 dark:bg-indigo-950/60 ring-1 ring-indigo-500"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80"
@@ -437,6 +445,19 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
           renderFolderTree(null, 0)
         )}
       </div>
+
+      {pendingDelete && (
+        <ConfirmActionModal
+          title={t("workspace.confirm_delete_title")}
+          message={
+            pendingDelete.kind === "folder"
+              ? t("sidebar.confirm_delete_folder", { name: pendingDelete.item.name })
+              : t("sidebar.confirm_delete_session", { name: pendingDelete.item.name })
+          }
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </aside>
   );
 }

@@ -124,8 +124,8 @@ export function FileExplorerPanel({
   const rowVirtualizer = useVirtualizer({
     count: sortedEntries.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 28,
-    overscan: 15,
+    estimateSize: () => 22,
+    overscan: 20,
   });
 
   const selectedEntries = useMemo(
@@ -323,7 +323,7 @@ export function FileExplorerPanel({
           <Panel id={isRemote ? "remote-list" : "local-list"} order={2} defaultSize={70} minSize={25}>
             <div className="h-full w-full flex flex-col">
               {/* Column Headers */}
-              <div className="grid grid-cols-[1fr_76px_88px_116px] items-center px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-[11px] font-medium text-zinc-500 shrink-0 select-none">
+              <div className="grid grid-cols-[1fr_76px_88px_116px] items-center px-3 py-1 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-[11px] font-medium text-zinc-500 shrink-0 select-none">
                 <button
                   type="button"
                   onClick={() => toggleSort("name")}
