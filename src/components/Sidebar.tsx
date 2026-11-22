@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -23,6 +23,11 @@ interface SidebarProps {
   onNewSession: (folderId: string | null) => void;
   onEditSession: (session: Session) => void;
 }
+
+type SidebarContextMenu =
+  | { x: number; y: number; kind: "session"; session: Session }
+  | { x: number; y: number; kind: "folder"; folder: Folder }
+  | { x: number; y: number; kind: "empty" };
 
 const PROTOCOL_BADGE: Record<Protocol, string> = {
   ftp: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
@@ -56,6 +61,26 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
   >(null);
+  const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("mousedown", handleOutside);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("mousedown", handleOutside);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [contextMenu]);
 
   const toggleFolder = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
@@ -85,14 +110,6 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     });
     setEditingFolderId(null);
     await refreshVaultData();
-  };
-
-  const handleDeleteFolder = (folder: Folder) => {
-    setPendingDelete({ kind: "folder", item: folder });
-  };
-
-  const handleDeleteSession = (session: Session) => {
-    setPendingDelete({ kind: "session", item: session });
   };
 
   const confirmDelete = async () => {
@@ -166,8 +183,13 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
         e.dataTransfer.setData("application/x-cd-id", session.id);
       }}
       onDoubleClick={() => openSessionTab(session)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, kind: "session", session });
+      }}
       style={{ paddingLeft: `${depth * 16 + 6}px` }}
-      className="group flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default transition-colors"
+      className="flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default select-none transition-colors"
     >
       <span className="w-4 shrink-0" />
       {session.protocol === "ssh" ? (
@@ -179,47 +201,12 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
         {session.name}
       </span>
       <span
-        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
           PROTOCOL_BADGE[session.protocol]
         }`}
       >
         {PROTOCOL_LABEL[session.protocol]}
       </span>
-      <div className="hidden group-hover:flex items-center gap-0.5">
-        <button
-          type="button"
-          title={t("sidebar.connect")}
-          onClick={(e) => {
-            e.stopPropagation();
-            openSessionTab(session);
-          }}
-          className="p-1 rounded hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400"
-        >
-          <Play className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          title={t("app.edit")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onEditSession(session);
-          }}
-          className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          title={t("app.delete")}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDeleteSession(session);
-          }}
-          className="p-1 rounded hover:bg-red-500/20 text-red-600 dark:text-red-400"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
     </div>
   );
 
@@ -251,13 +238,18 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 }}
                 onDragLeave={() => setDragOverTarget(null)}
                 onDrop={(e) => handleDropOnFolder(e, folder.id)}
+                onClick={() => hasChildren && toggleFolder(folder.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({ x: e.clientX, y: e.clientY, kind: "folder", folder });
+                }}
                 style={{ paddingLeft: `${depth * 16 + 6}px` }}
-                className={`group flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md cursor-default transition-colors ${
+                className={`flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md cursor-default select-none transition-colors ${
                   isDragOver
                     ? "bg-indigo-100 dark:bg-indigo-950/60 ring-1 ring-indigo-500"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80"
                 }`}
-                onClick={() => hasChildren && toggleFolder(folder.id)}
               >
                 <span className="w-4 h-4 flex items-center justify-center shrink-0">
                   {hasChildren ? (
@@ -292,55 +284,6 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                     {folder.name}
                   </span>
                 )}
-
-                <div className="hidden group-hover:flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    title={t("sidebar.new_session")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNewSession(folder.id);
-                    }}
-                    className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    title={t("sidebar.new_folder")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCreatingFolderParent(folder.id);
-                      setFolderNameInput("");
-                    }}
-                    className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    <FolderPlus className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    title={t("app.edit")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingFolderId(folder.id);
-                      setEditingFolderName(folder.name);
-                    }}
-                    className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    title={t("app.delete")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder);
-                    }}
-                    className="p-1 rounded hover:bg-red-500/20 text-red-600 dark:text-red-400"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
               </div>
 
               {isOpen && renderFolderTree(folder.id, depth + 1)}
@@ -352,6 +295,11 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
       </>
     );
   };
+
+  const menuItemClass =
+    "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-zinc-800 dark:text-zinc-200 transition-colors cursor-default";
+  const menuDangerClass =
+    "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-red-50 dark:hover:bg-red-950/50 text-red-600 dark:text-red-400 transition-colors cursor-default";
 
   return (
     <aside className="w-68 shrink-0 h-full flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60">
@@ -434,6 +382,10 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
         }}
         onDragLeave={() => setDragOverTarget(null)}
         onDrop={(e) => handleDropOnFolder(e, null)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ x: e.clientX, y: e.clientY, kind: "empty" });
+        }}
       >
         {folders.length === 0 && sessions.length === 0 ? (
           <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center px-4 py-8 leading-relaxed">
@@ -445,6 +397,139 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
           renderFolderTree(null, 0)
         )}
       </div>
+
+      {/* Right-Click Context Menu */}
+      {contextMenu && (
+        <div
+          ref={menuRef}
+          style={{
+            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 196)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 170)),
+            width: 188,
+          }}
+          className="fixed z-50 py-1.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl select-none"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {contextMenu.kind === "session" && (
+            <>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  openSessionTab(contextMenu.session);
+                  setContextMenu(null);
+                }}
+              >
+                <Play className="w-3.5 h-3.5 text-indigo-500" />
+                {t("sidebar.connect")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onEditSession(contextMenu.session);
+                  setContextMenu(null);
+                }}
+              >
+                <Pencil className="w-3.5 h-3.5 text-zinc-500" />
+                {t("app.edit")}
+              </button>
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+              <button
+                type="button"
+                className={menuDangerClass}
+                onClick={() => {
+                  setPendingDelete({ kind: "session", item: contextMenu.session });
+                  setContextMenu(null);
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {t("app.delete")}
+              </button>
+            </>
+          )}
+
+          {contextMenu.kind === "folder" && (
+            <>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onNewSession(contextMenu.folder.id);
+                  setContextMenu(null);
+                }}
+              >
+                <Plus className="w-3.5 h-3.5 text-indigo-500" />
+                {t("sidebar.new_session")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  setCreatingFolderParent(contextMenu.folder.id);
+                  setFolderNameInput("");
+                  setContextMenu(null);
+                }}
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-zinc-500" />
+                {t("sidebar.new_folder")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  setEditingFolderId(contextMenu.folder.id);
+                  setEditingFolderName(contextMenu.folder.name);
+                  setContextMenu(null);
+                }}
+              >
+                <Pencil className="w-3.5 h-3.5 text-zinc-500" />
+                {t("workspace.rename")}
+              </button>
+              <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
+              <button
+                type="button"
+                className={menuDangerClass}
+                onClick={() => {
+                  setPendingDelete({ kind: "folder", item: contextMenu.folder });
+                  setContextMenu(null);
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {t("app.delete")}
+              </button>
+            </>
+          )}
+
+          {contextMenu.kind === "empty" && (
+            <>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onNewSession(null);
+                  setContextMenu(null);
+                }}
+              >
+                <Plus className="w-3.5 h-3.5 text-indigo-500" />
+                {t("sidebar.new_session")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  setCreatingFolderParent(null);
+                  setFolderNameInput("");
+                  setContextMenu(null);
+                }}
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-zinc-500" />
+                {t("sidebar.new_folder")}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {pendingDelete && (
         <ConfirmActionModal
