@@ -68,6 +68,44 @@ export function App() {
     };
   }, [appendSessionLog]);
 
+  // Global panel visibility shortcuts (RF-11)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (key === "b") {
+        e.preventDefault();
+        updateConfig({ ui_show_sidebar: !config.ui_show_sidebar });
+      } else if (key === "1") {
+        e.preventDefault();
+        updateConfig({ ui_show_local_panel: !config.ui_show_local_panel });
+      } else if (key === "2") {
+        e.preventDefault();
+        updateConfig({ ui_show_command_panel: !config.ui_show_command_panel });
+      } else if (key === "3") {
+        e.preventDefault();
+        updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    config.ui_show_sidebar,
+    config.ui_show_local_panel,
+    config.ui_show_command_panel,
+    config.ui_show_queue_panel,
+    updateConfig,
+  ]);
+
   // Apply Light / Dark / System theme
   useEffect(() => {
     const root = document.documentElement;

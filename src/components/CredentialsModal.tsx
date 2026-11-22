@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { KeyRound, Plus, Pencil, Trash2, Upload, X, ShieldCheck } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { ConfirmActionModal } from "./FileActionModals";
 import { extractErrorMessage, type AuthType, type CredentialSummary } from "../types";
 
 interface CredentialsModalProps {
@@ -25,6 +26,7 @@ export function CredentialsModal({ onClose }: CredentialsModalProps) {
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<CredentialSummary | null>(null);
 
   const startCreate = () => {
     setEditing(null);
@@ -98,10 +100,16 @@ export function CredentialsModal({ onClose }: CredentialsModalProps) {
     }
   };
 
-  const handleDelete = async (cred: CredentialSummary) => {
-    if (!window.confirm(t("credentials.confirm_delete", { name: cred.name }))) return;
-    await api.deleteCredential(cred.id);
-    if (editing?.id === cred.id) {
+  const handleDelete = (cred: CredentialSummary) => {
+    setPendingDelete(cred);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+    await api.deleteCredential(target.id);
+    if (editing?.id === target.id) {
       setEditing(null);
     }
     await refreshVaultData();
@@ -339,6 +347,15 @@ export function CredentialsModal({ onClose }: CredentialsModalProps) {
           )}
         </div>
       </div>
+
+      {pendingDelete && (
+        <ConfirmActionModal
+          title={t("workspace.confirm_delete_title")}
+          message={t("credentials.confirm_delete", { name: pendingDelete.name })}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }
