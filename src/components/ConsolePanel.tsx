@@ -85,7 +85,7 @@ export function ConsolePanel({ tabId, protocol, connected }: ConsolePanelProps) 
   };
 
   return (
-    <section className="h-44 shrink-0 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 flex flex-col">
+    <section className="h-full w-full bg-zinc-50 dark:bg-zinc-900/70 flex flex-col">
       <div className="px-3 py-1.5 border-b border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
           {t("workspace.panel_console")}
