@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Disc3, X, ExternalLink, Keyboard } from "lucide-react";
+import { X, ExternalLink, Keyboard } from "lucide-react";
+import { AppLogo } from "./AppLogo";
 
 interface AboutModalProps {
   onClose: () => void;
@@ -21,9 +22,7 @@ export function AboutModal({ onClose }: AboutModalProps) {
       <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-              <Disc3 className="w-5 h-5" />
-            </div>
+            <AppLogo className="w-9 h-9 rounded-xl shadow-xs shrink-0" />
             <div>
               <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {t("about.title")}

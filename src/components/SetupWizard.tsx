@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   ShieldCheck,
   KeyRound,
-  Disc3,
   Lock,
   Upload,
   FileJson,
@@ -11,6 +10,7 @@ import {
 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { AppLogo } from "./AppLogo";
 import {
   extractErrorMessage,
   type ExportSummary,
@@ -141,9 +141,7 @@ export function SetupWizard() {
     <div className="h-full w-full flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-6 overflow-y-auto">
       <div className="w-full max-w-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl p-8">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow">
-            <Disc3 className="w-6 h-6" />
-          </div>
+          <AppLogo className="w-11 h-11 rounded-xl shadow shrink-0" />
           <div>
             <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
               {t("setup.title")}

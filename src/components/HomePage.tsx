@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Disc3, Zap, Search, FolderTree, Terminal, Clock, X } from "lucide-react";
+import { Zap, Search, FolderTree, Terminal, Clock, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
+import { AppLogo } from "./AppLogo";
 import { resolveIconColor } from "./IconColorPicker";
 import type { Session } from "../types";
 
@@ -41,9 +42,7 @@ export function HomePage({ onQuickConnect }: HomePageProps) {
       <div className="w-full max-w-2xl flex flex-col items-center space-y-6">
         {/* 1. App Icon & Title */}
         <div className="flex flex-col items-center text-center">
-          <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg mb-3">
-            <Disc3 className="w-9 h-9" />
-          </div>
+          <AppLogo className="w-16 h-16 rounded-2xl shadow-lg mb-3" />
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
             {t("app.name")}
           </h1>
