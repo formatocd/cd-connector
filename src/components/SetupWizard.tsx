@@ -19,12 +19,18 @@ import {
 
 export function SetupWizard() {
   const { t } = useTranslation();
-  const { setSecurity, refreshVaultData } = useAppStore();
+  const { config, setSecurity, refreshVaultData, updateConfig } = useAppStore();
 
   const [tab, setTab] = useState<"new" | "from_json">("new");
   const [mode, setMode] = useState<SecurityMode>("master_password");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [theme, setTheme] = useState<"light" | "dark">(
+    config.theme === "light" ? "light" : "dark"
+  );
+  const [copyOnSelect, setCopyOnSelect] = useState<boolean>(
+    config.terminal_copy_on_select
+  );
 
   // Restore from JSON state
   const [rawJson, setRawJson] = useState("");
@@ -77,6 +83,7 @@ export function SetupWizard() {
 
       setSubmitting(true);
       try {
+        await updateConfig({ theme, terminal_copy_on_select: copyOnSelect });
         const status = await api.setupSecurityMode(
           mode,
           mode === "master_password" ? password : undefined
@@ -118,6 +125,7 @@ export function SetupWizard() {
 
     setSubmitting(true);
     try {
+      await updateConfig({ theme, terminal_copy_on_select: copyOnSelect });
       const status = await api.setupFromJson(
         rawJson,
         mode,
@@ -356,6 +364,69 @@ export function SetupWizard() {
               {error}
             </div>
           )}
+
+          {/* Default Preferences: Theme & Terminal Copy-on-Select */}
+          <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              {t("setup.preferences_title")}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  {t("settings.theme")}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  {(["light", "dark"] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setTheme(opt);
+                        updateConfig({ theme: opt });
+                      }}
+                      className={`py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                        theme === opt
+                          ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                      }`}
+                    >
+                      {t(`settings.theme_${opt}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  {t("settings.terminal_copy_on_select")}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setCopyOnSelect(true)}
+                    className={`py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                      copyOnSelect
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t("setup.yes")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopyOnSelect(false)}
+                    className={`py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                      !copyOnSelect
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t("setup.no")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="pt-2 flex justify-end">
             <button

@@ -36,7 +36,10 @@
     "import_password_required": "Introduce la contraseña maestra con la que se exportó el archivo.",
     "reuse_password": "Usar la misma contraseña maestra para esta instalación",
     "new_vault_mode": "Modo de seguridad para esta nueva base de datos",
-    "restore_button": "Crear base de datos e importar"
+    "restore_button": "Crear base de datos e importar",
+    "preferences_title": "Preferencias iniciales",
+    "yes": "Sí",
+    "no": "No"
   },
   "unlock": {
     "title": "Bóveda bloqueada",

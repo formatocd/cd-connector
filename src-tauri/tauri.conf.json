@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CD Connector",
+  "productName": "cd-connector",
   "version": "1.0.0",
   "identifier": "com.formatocd.cd-connector",
   "build": {

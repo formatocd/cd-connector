@@ -756,12 +756,12 @@ fn find_unique_local_path(original: &Path) -> PathBuf {
         .unwrap_or_else(|| "file".to_string());
     let (stem, ext) = split_stem_ext(&file_name);
     for idx in 1..10_000 {
-        let candidate = parent.join(format!("{stem} ({idx}){ext}"));
+        let candidate = parent.join(format!("{stem}_{idx}{ext}"));
         if !candidate.exists() {
             return candidate;
         }
     }
-    parent.join(format!("{stem} (copy){ext}"))
+    parent.join(format!("{stem}_copy{ext}"))
 }
 
 async fn find_unique_remote_path(client_arc: &SharedClient, original: &str) -> String {
@@ -772,7 +772,7 @@ async fn find_unique_remote_path(client_arc: &SharedClient, original: &str) -> S
     let (stem, ext) = split_stem_ext(name);
     let mut client = client_arc.lock().await;
     for idx in 1..1_000 {
-        let candidate_name = format!("{stem} ({idx}){ext}");
+        let candidate_name = format!("{stem}_{idx}{ext}");
         let candidate = if dir.is_empty() {
             format!("/{candidate_name}")
         } else {
@@ -782,7 +782,7 @@ async fn find_unique_remote_path(client_arc: &SharedClient, original: &str) -> S
             return candidate;
         }
     }
-    format!("{dir}/{stem} (copy){ext}")
+    format!("{dir}/{stem}_copy{ext}")
 }
 
 fn expand_local_dir<'a>(
