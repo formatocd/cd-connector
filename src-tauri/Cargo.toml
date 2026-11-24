@@ -1,15 +1,15 @@
 [package]
-name = "cd-connector"
-version = "1.0.0"
-description = "Cross-platform FTP, FTPS, SFTP & SSH file transfer client"
+name = "cd-remote"
+version = "1.1.0"
+description = "Cross-platform FTP, FTPS, SFTP & SSH remote client"
 authors = ["Carlos Durán <formatocd>"]
 license = "MIT"
-repository = "https://github.com/formatocd/cd-connector"
-homepage = "https://github.com/formatocd/cd-connector"
+repository = "https://github.com/formatocd/cd-remote"
+homepage = "https://github.com/formatocd/cd-remote"
 edition = "2021"
 
 [lib]
-name = "cd_connector_lib"
+name = "cd_remote_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

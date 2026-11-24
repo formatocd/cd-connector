@@ -97,7 +97,7 @@ pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppRes
 
     let bundle = ExportBundle {
         version: 1,
-        app: "cd-connector".to_string(),
+        app: "cd-remote".to_string(),
         exported_at: Utc::now().to_rfc3339(),
         encrypted,
         salt_b64,
@@ -481,9 +481,9 @@ pub fn commit_import(
 #[tauri::command]
 pub fn inspect_export_bundle(raw_json: String) -> AppResult<ExportSummary> {
     let bundle: ExportBundle = serde_json::from_str(&raw_json)?;
-    if bundle.app != "cd-connector" {
+    if bundle.app != "cd-remote" && bundle.app != "cd-connector" {
         return Err(AppError::Validation(
-            "Invalid backup file: not a CD Connector export".into(),
+            "Invalid backup file: not a CD Remote export".into(),
         ));
     }
     Ok(ExportSummary {
@@ -504,9 +504,9 @@ pub fn setup_from_json(
     master_password: Option<String>,
 ) -> AppResult<SecurityStatus> {
     let bundle: ExportBundle = serde_json::from_str(&raw_json)?;
-    if bundle.app != "cd-connector" {
+    if bundle.app != "cd-remote" && bundle.app != "cd-connector" {
         return Err(AppError::Validation(
-            "Invalid backup file: not a CD Connector export".into(),
+            "Invalid backup file: not a CD Remote export".into(),
         ));
     }
 

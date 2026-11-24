@@ -112,6 +112,7 @@ pub struct CredentialInput {
     pub private_key: Option<String>,
     pub passphrase: Option<String>,
     pub keep_existing_secret: Option<bool>,
+    pub clone_from_credential_id: Option<String>,
     pub reusable: Option<bool>,
 }
 

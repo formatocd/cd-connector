@@ -17,6 +17,23 @@ interface Crumb {
 function parseBreadcrumbs(path: string, isLocal: boolean): Crumb[] {
   if (!path) return [{ label: "/", path: "/" }];
 
+  // Windows UNC network path e.g. \\server\share\folder
+  if (isLocal && /^(\\\\|\/\/)[^\\/]+[\\/]+[^\\/]+/.test(path)) {
+    const normalized = path.replace(/\//g, "\\");
+    const parts = normalized.replace(/^\\+/, "").split("\\").filter(Boolean);
+    if (parts.length >= 2) {
+      const root = `\\\\${parts[0]}\\${parts[1]}`;
+      const crumbs: Crumb[] = [{ label: root, path: root }];
+      for (let i = 2; i < parts.length; i++) {
+        crumbs.push({
+          label: parts[i],
+          path: `${root}\\${parts.slice(2, i + 1).join("\\")}`,
+        });
+      }
+      return crumbs;
+    }
+  }
+
   // Windows path e.g. C:\Users\Carlos
   if (isLocal && /^[a-zA-Z]:/.test(path)) {
     const normalized = path.replace(/\//g, "\\");

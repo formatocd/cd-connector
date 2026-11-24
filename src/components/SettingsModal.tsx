@@ -129,6 +129,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 >
                   <option value="es">Español</option>
                   <option value="en">English</option>
+                  <option value="it">Italiano</option>
+                  <option value="fr">Français</option>
+                  <option value="de">Deutsch</option>
                 </select>
               </div>
             </div>
@@ -223,7 +226,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               }}
               className="px-3 py-2 rounded-lg bg-zinc-950 text-emerald-400 border border-zinc-800 truncate"
             >
-              carlos@cd-connector:~$ ls -la /var/www/html
+              carlos@cd-remote:~$ ls -la /var/www/html
             </div>
             <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
               <input

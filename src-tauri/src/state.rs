@@ -12,6 +12,7 @@ use crate::protocols::FileTransferClient;
 use crate::transfer::TransferManager;
 
 pub type SharedClient = Arc<AsyncMutex<Box<dyn FileTransferClient>>>;
+pub type SharedLogFile = Arc<AsyncMutex<tokio::fs::File>>;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -19,6 +20,7 @@ pub struct AppState {
     pub app_data_dir: PathBuf,
     pub connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
     pub ssh_terminals: Arc<AsyncRwLock<HashMap<String, SshTerminalHandle>>>,
+    pub ssh_log_files: Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
     pub transfers: Arc<TransferManager>,
 }
 
@@ -30,6 +32,7 @@ impl AppState {
             app_data_dir,
             connections: Arc::new(AsyncRwLock::new(HashMap::new())),
             ssh_terminals: Arc::new(AsyncRwLock::new(HashMap::new())),
+            ssh_log_files: Arc::new(AsyncRwLock::new(HashMap::new())),
             transfers: TransferManager::new(
                 config.max_concurrent_transfers,
                 config.upload_limit_kbps,

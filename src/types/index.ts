@@ -28,6 +28,7 @@ export interface CredentialInput {
   private_key?: string;
   passphrase?: string;
   keep_existing_secret?: boolean;
+  clone_from_credential_id?: string;
   reusable?: boolean;
 }
 
@@ -45,6 +46,8 @@ export interface FolderInput {
   sort_order?: number;
   icon_color?: string | null;
 }
+
+export type SessionKind = "ssh" | "transfer";
 
 export type Protocol =
   | "ftp"
@@ -87,7 +90,7 @@ export interface SessionInput {
 
 export interface AppConfig {
   theme: "light" | "dark" | "system";
-  language: "es" | "en";
+  language: "es" | "en" | "it" | "fr" | "de";
   max_concurrent_transfers: number;
   upload_limit_kbps: number;
   download_limit_kbps: number;

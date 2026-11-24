@@ -214,3 +214,66 @@ pub fn mark_session_opened(state: State<'_, AppState>, id: String) -> AppResult<
     db::touch_session_last_opened(&conn, &id, &now)?;
     Ok(now)
 }
+
+#[tauri::command]
+pub fn reorder_tree_items(
+    state: State<'_, AppState>,
+    kind: String,
+    parent_id: Option<String>,
+    ordered_ids: Vec<String>,
+) -> AppResult<()> {
+    let _ = state.get_master_key()?;
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+
+    if kind == "folder" {
+        if let Some(ref new_parent) = parent_id {
+            let all = db::list_folders(&conn)?;
+            let parent_map: HashMap<String, Option<String>> =
+                all.into_iter().map(|f| (f.id, f.parent_id)).collect();
+            for id in &ordered_ids {
+                if new_parent == id {
+                    return Err(AppError::Validation(
+                        "A folder cannot be moved into itself".into(),
+                    ));
+                }
+                let mut cursor = Some(new_parent.clone());
+                while let Some(curr) = cursor {
+                    if &curr == id {
+                        return Err(AppError::Validation(
+                            "Cannot move a folder into one of its descendants".into(),
+                        ));
+                    }
+                    cursor = parent_map.get(&curr).cloned().flatten();
+                }
+            }
+        }
+    }
+
+    let tx = conn.transaction()?;
+    match kind.as_str() {
+        "folder" => {
+            for (idx, id) in ordered_ids.iter().enumerate() {
+                tx.execute(
+                    "UPDATE folders SET parent_id = ?1, sort_order = ?2 WHERE id = ?3",
+                    rusqlite::params![parent_id, idx as i64, id],
+                )?;
+            }
+        }
+        "session" => {
+            for (idx, id) in ordered_ids.iter().enumerate() {
+                tx.execute(
+                    "UPDATE sessions SET folder_id = ?1, sort_order = ?2 WHERE id = ?3",
+                    rusqlite::params![parent_id, idx as i64, id],
+                )?;
+            }
+        }
+        _ => {
+            return Err(AppError::Validation(format!("Invalid tree item kind: {kind}")));
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}

@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { Plug, Unplug, Terminal } from "lucide-react";
+import { Plug, Unplug } from "lucide-react";
+import { TerminalSolidIcon } from "./TerminalSolidIcon";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { ConsolePanel } from "./ConsolePanel";
@@ -46,6 +47,15 @@ function parentRemotePath(path: string): string {
 }
 
 function parentLocalPath(path: string): string {
+  // Windows UNC path e.g. \\server\share\sub -> \\server\share
+  if (/^(\\\\|\/\/)/.test(path)) {
+    const cleaned = path.replace(/\//g, "\\").replace(/\\+$/, "");
+    const parts = cleaned.replace(/^\\+/, "").split("\\").filter(Boolean);
+    if (parts.length <= 2) {
+      return parts.length === 2 ? `\\\\${parts[0]}\\${parts[1]}` : cleaned;
+    }
+    return `\\\\${parts.slice(0, -1).join("\\")}`;
+  }
   const sep = path.includes("\\") ? "\\" : "/";
   const cleaned = path.replace(/[\\/]+$/, "");
   const idx = Math.max(cleaned.lastIndexOf("\\"), cleaned.lastIndexOf("/"));
@@ -414,7 +424,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
               }
               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-950/70 cursor-pointer"
             >
-              <Terminal className="w-3 h-3" />
+              <TerminalSolidIcon className="w-3.5 h-3.5" />
               {t("workspace.open_ssh_here")}
             </button>
           )}

@@ -1,21 +1,23 @@
 {
-  "name": "cd-connector",
+  "name": "cd-remote",
   "private": true,
-  "version": "1.0.0",
-  "description": "Cross-platform FTP, FTPS, SFTP & SSH file transfer client",
+  "version": "1.1.0",
+  "description": "Cross-platform FTP, FTPS, SFTP & SSH remote client",
   "author": "Carlos Durán <formatocd>",
   "license": "MIT",
-  "homepage": "https://github.com/formatocd/cd-connector",
+  "homepage": "https://github.com/formatocd/cd-remote",
   "repository": {
     "type": "git",
-    "url": "https://github.com/formatocd/cd-connector.git"
+    "url": "https://github.com/formatocd/cd-remote.git"
   },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "rename-bundles": "node scripts/rename-bundles.mjs",
+    "build:release": "tauri build && node scripts/rename-bundles.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.0",

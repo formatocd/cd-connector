@@ -2,14 +2,91 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use russh::client::{self, Config};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{ChannelMsg, Disconnect};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AuthType, HostKeyPromptInfo, KnownHost, SshClosedEvent, SshDataEvent};
 use crate::protocols::ResolvedAuth;
+use crate::state::SharedLogFile;
+
+/// Strips ANSI escape sequences (CSI, OSC, and 2-byte ESC sequences) for clean plain-text logs.
+fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        let b = input[i];
+        if b == 0x1b {
+            i += 1;
+            if i >= input.len() {
+                break;
+            }
+            match input[i] {
+                b'[' => {
+                    // CSI sequence: ESC [ ... final byte 0x40..=0x7E
+                    i += 1;
+                    while i < input.len() {
+                        let c = input[i];
+                        i += 1;
+                        if (0x40..=0x7e).contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                b']' => {
+                    // OSC sequence: ESC ] ... (BEL 0x07 or ST ESC \)
+                    i += 1;
+                    while i < input.len() {
+                        if input[i] == 0x07 {
+                            i += 1;
+                            break;
+                        }
+                        if input[i] == 0x1b && i + 1 < input.len() && input[i + 1] == b'\\' {
+                            i += 2;
+                            break;
+                        }
+                        i += 1;
+                    }
+                }
+                _ => {
+                    // 2-byte escape sequence
+                    i += 1;
+                }
+            }
+        } else if b == b'\r' {
+            // Normalize CRLF -> LF (skip CR if followed by LF or standalone carriage return)
+            i += 1;
+        } else {
+            out.push(b);
+            i += 1;
+        }
+    }
+    out
+}
+
+async fn write_to_log_if_active(
+    log_files: &Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
+    tab_id: &str,
+    data: &[u8],
+) {
+    let file_opt = {
+        let guard = log_files.read().await;
+        guard.get(tab_id).cloned()
+    };
+    if let Some(file_arc) = file_opt {
+        let cleaned = strip_ansi_bytes(data);
+        if !cleaned.is_empty() {
+            let mut f = file_arc.lock().await;
+            let _ = f.write_all(&cleaned).await;
+            let _ = f.flush().await;
+        }
+    }
+}
 
 pub enum SshCommand {
     Write(Vec<u8>),
@@ -111,6 +188,7 @@ pub async fn connect_ssh_terminal(
     cols: u32,
     rows: u32,
     initial_dir: Option<String>,
+    ssh_log_files: Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
 ) -> AppResult<SshConnectOutcome> {
     let prompt_info = Arc::new(Mutex::new(None));
     let accepted_key = Arc::new(Mutex::new(None));
@@ -221,6 +299,7 @@ pub async fn connect_ssh_terminal(
                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { data }) => {
+                            write_to_log_if_active(&ssh_log_files, &tab_id_task, &data[..]).await;
                             let _ = app.emit(
                                 "ssh-data",
                                 SshDataEvent {
@@ -230,6 +309,7 @@ pub async fn connect_ssh_terminal(
                             );
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
+                            write_to_log_if_active(&ssh_log_files, &tab_id_task, &data[..]).await;
                             let _ = app.emit(
                                 "ssh-data",
                                 SshDataEvent {

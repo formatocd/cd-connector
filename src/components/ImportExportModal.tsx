@@ -72,7 +72,7 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
       const a = document.createElement("a");
       const dateStr = new Date().toISOString().slice(0, 10);
       a.href = url;
-      a.download = `cd-connector-backup-${dateStr}.json`;
+      a.download = `cd-remote-backup-${dateStr}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setExportMessage(t("portability.export_success"));

@@ -149,6 +149,16 @@ pub fn get_security_mode(conn: &Connection) -> AppResult<Option<SecurityMode>> {
     Ok(val.and_then(|s| SecurityMode::from_str(&s)))
 }
 
+fn read_installer_language() -> Option<String> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let raw = std::fs::read_to_string(exe_dir.join("installer_lang.txt")).ok()?;
+    let code = raw.trim().to_lowercase();
+    match code.as_str() {
+        "es" | "en" | "it" | "fr" | "de" => Some(code),
+        _ => None,
+    }
+}
+
 pub fn load_app_config(conn: &Connection) -> AppResult<AppConfig> {
     let mut cfg = AppConfig::default();
     if let Some(v) = get_config_value(conn, "theme")? {
@@ -156,6 +166,8 @@ pub fn load_app_config(conn: &Connection) -> AppResult<AppConfig> {
     }
     if let Some(v) = get_config_value(conn, "language")? {
         cfg.language = v;
+    } else if let Some(lang) = read_installer_language() {
+        cfg.language = lang;
     }
     if let Some(v) = get_config_value(conn, "max_concurrent_transfers")? {
         if let Ok(n) = v.parse() {

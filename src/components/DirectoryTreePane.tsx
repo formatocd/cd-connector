@@ -6,6 +6,7 @@ import {
   FolderOpen,
   HardDrive,
   Loader2,
+  Network,
 } from "lucide-react";
 import { api } from "../services/tauri";
 import type { FileEntry } from "../types";
@@ -25,6 +26,14 @@ function normalizePath(p: string, isRemote: boolean): string {
     const cleaned = p.replace(/\/+$/, "");
     return cleaned || "/";
   }
+  // Windows UNC network path e.g. \\server\share\folder
+  if (/^(\\\\|\/\/)/.test(p)) {
+    const parts = p.replace(/\//g, "\\").replace(/^\\+/, "").split("\\").filter(Boolean);
+    if (parts.length >= 2) {
+      return `\\\\${parts.join("\\")}`;
+    }
+    return p.replace(/\//g, "\\");
+  }
   // Windows drive root e.g. C:\
   if (/^[a-zA-Z]:[\\/]?$/.test(p)) {
     return `${p[0].toUpperCase()}:\\`;
@@ -35,6 +44,17 @@ function normalizePath(p: string, isRemote: boolean): string {
 function getAncestors(path: string, isRemote: boolean): string[] {
   const norm = normalizePath(path, isRemote);
   if (!norm) return [];
+
+  if (!isRemote && norm.startsWith("\\\\")) {
+    const parts = norm.slice(2).split("\\").filter(Boolean);
+    if (parts.length < 2) return [];
+    const shareRoot = `\\\\${parts[0]}\\${parts[1]}`;
+    const result = [shareRoot];
+    for (let i = 2; i < parts.length; i++) {
+      result.push(`${shareRoot}\\${parts.slice(2, i + 1).join("\\")}`);
+    }
+    return result;
+  }
 
   if (!isRemote && /^[a-zA-Z]:/.test(norm)) {
     const parts = norm.split("\\").filter(Boolean);
@@ -59,6 +79,7 @@ function displayName(path: string, isRemote: boolean): string {
     if (path === "/") return "/";
     return path.split("/").filter(Boolean).pop() ?? path;
   }
+  if (/^\\\\[^\\]+\\[^\\]+$/.test(path)) return path;
   if (/^[a-zA-Z]:\\?$/.test(path)) return path;
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
@@ -102,6 +123,13 @@ export function DirectoryTreePane({
     }));
 
     const ancestors = getAncestors(normCurrent, isRemote);
+
+    // If navigating into a Windows UNC network share, pin its \\server\share root in the tree
+    if (!isRemote && ancestors.length > 0 && ancestors[0].startsWith("\\\\")) {
+      const shareRoot = ancestors[0];
+      setRoots((prev) => (prev.includes(shareRoot) ? prev : [...prev, shareRoot]));
+    }
+
     setExpanded((prev) => {
       const next = new Set(prev);
       ancestors.forEach((a) => next.add(a));
@@ -231,7 +259,11 @@ export function DirectoryTreePane({
           </span>
 
           {isRoot && !isRemote ? (
-            <HardDrive className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            nodePath.startsWith("\\\\") ? (
+              <Network className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+            ) : (
+              <HardDrive className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            )
           ) : isOpen ? (
             <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
           ) : (

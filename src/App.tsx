@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import {
   PanelLeft,
   Columns2,
-  Terminal,
+  Rows2,
   ListChecks,
-  Zap,
   KeyRound,
   ArrowLeftRight,
   Settings,
@@ -15,6 +14,7 @@ import {
   X,
   FolderTree,
   HelpCircle,
+  Square,
 } from "lucide-react";
 import { api } from "./services/tauri";
 import { useAppStore } from "./store/useAppStore";
@@ -31,9 +31,11 @@ import { ConflictModal } from "./components/ConflictModal";
 import { HomePage } from "./components/HomePage";
 import { AboutModal } from "./components/AboutModal";
 import { resolveIconColor } from "./components/IconColorPicker";
+import { TerminalSolidIcon } from "./components/TerminalSolidIcon";
 import type {
   ConflictPromptEvent,
   Session,
+  SessionKind,
   SessionLogEvent,
   TransferItem,
 } from "./types";
@@ -46,12 +48,18 @@ export function App() {
     config,
     tabs,
     activeTabId,
+    secondaryTabId,
+    splitDirection,
+    focusedPane,
     initialize,
     setSecurity,
     updateConfig,
     setActiveTab,
     closeTab,
     duplicateTab,
+    reorderTabs,
+    setSplitDirection,
+    setFocusedPane,
     appendSessionLog,
     conflictQueue,
     setTransfers,
@@ -64,10 +72,104 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [sessionModal, setSessionModal] = useState<{
-    mode: "create" | "edit" | "quick";
+    mode: "create" | "edit" | "duplicate" | "quick";
+    sessionKind: SessionKind;
     folderId?: string | null;
     session?: Session | null;
   } | null>(null);
+
+  // Tab drag-to-reorder state (pointer-event based for WebView2 compatibility)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabDragGhost, setTabDragGhost] = useState<{ label: string; x: number; y: number } | null>(
+    null
+  );
+  const [tabDropTarget, setTabDropTarget] = useState<{
+    tabId: string;
+    position: "before" | "after";
+  } | null>(null);
+  const suppressTabClickRef = useRef(false);
+
+  const startTabPointerDrag = (e: React.PointerEvent, tabId: string, label: string) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement | null)?.closest("button")) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let active = false;
+    let latestTarget: { tabId: string; position: "before" | "after" } | null = null;
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) < 5) {
+          return;
+        }
+        active = true;
+        setDraggingTabId(tabId);
+      }
+      setTabDragGhost({ label, x: moveEv.clientX, y: moveEv.clientY });
+      const el = document.elementFromPoint(moveEv.clientX, moveEv.clientY) as HTMLElement | null;
+      const tabEl = el?.closest("[data-tab-id]") as HTMLElement | null;
+      const targetId = tabEl?.dataset.tabId;
+      if (tabEl && targetId && targetId !== tabId) {
+        const rect = tabEl.getBoundingClientRect();
+        const pos: "before" | "after" =
+          moveEv.clientX - rect.left < rect.width / 2 ? "before" : "after";
+        latestTarget = { tabId: targetId, position: pos };
+      } else {
+        latestTarget = null;
+      }
+      setTabDropTarget(latestTarget);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (active) {
+        suppressTabClickRef.current = true;
+        window.setTimeout(() => {
+          suppressTabClickRef.current = false;
+        }, 50);
+        if (latestTarget && latestTarget.tabId !== tabId) {
+          reorderTabs(tabId, latestTarget.tabId, latestTarget.position);
+        }
+        setDraggingTabId(null);
+        setTabDragGhost(null);
+        setTabDropTarget(null);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
+  // Split view ratio state (percentage for Pane 1, 20..80)
+  const [splitRatio, setSplitRatio] = useState(50);
+  const workspaceContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleStartSplitResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const container = workspaceContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const ratio =
+        splitDirection === "vertical"
+          ? ((moveEvent.clientY - rect.top) / rect.height) * 100
+          : ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setSplitRatio(Math.min(80, Math.max(20, ratio)));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   useEffect(() => {
     initialize();
@@ -186,11 +288,20 @@ export function App() {
 
           <button
             type="button"
-            onClick={() => setSessionModal({ mode: "quick" })}
+            onClick={() => setSessionModal({ mode: "quick", sessionKind: "ssh" })}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer"
+          >
+            <TerminalSolidIcon className="w-3.5 h-3.5" />
+            {t("toolbar.quick_ssh")}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSessionModal({ mode: "quick", sessionKind: "transfer" })}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer"
           >
-            <Zap className="w-3.5 h-3.5" />
-            {t("toolbar.quick_connect")}
+            <FolderTree className="w-3.5 h-3.5" />
+            {t("toolbar.quick_transfer")}
           </button>
         </div>
 
@@ -223,7 +334,7 @@ export function App() {
                 : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
             }`}
           >
-            <Terminal className="w-3.5 h-3.5" />
+            <TerminalSolidIcon className="w-3.5 h-3.5" />
             <span className="hidden md:inline">{t("toolbar.toggle_console")}</span>
           </button>
           <button
@@ -294,11 +405,22 @@ export function App() {
       <div className="flex-1 min-h-0 flex">
         {config.ui_show_sidebar && (
           <Sidebar
-            onNewSession={(folderId) =>
-              setSessionModal({ mode: "create", folderId })
+            onNewSession={(folderId, sessionKind) =>
+              setSessionModal({ mode: "create", sessionKind, folderId })
             }
             onEditSession={(session) =>
-              setSessionModal({ mode: "edit", session })
+              setSessionModal({
+                mode: "edit",
+                sessionKind: session.protocol === "ssh" ? "ssh" : "transfer",
+                session,
+              })
+            }
+            onDuplicateSession={(session) =>
+              setSessionModal({
+                mode: "duplicate",
+                sessionKind: session.protocol === "ssh" ? "ssh" : "transfer",
+                session,
+              })
             }
           />
         )}
@@ -306,83 +428,263 @@ export function App() {
         <main className="flex-1 min-w-0 flex flex-col">
           {/* Tabs Bar */}
           {tabs.length > 0 && (
-            <div className="h-9 shrink-0 px-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/50 flex items-center gap-1 overflow-x-auto">
-              {tabs.map((tab) => {
-                const isActive = tab.tabId === activeTabId;
-                return (
-                  <div
-                    key={tab.tabId}
-                    onClick={() => setActiveTab(tab.tabId)}
-                    className={`group flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs cursor-pointer transition-colors shrink-0 ${
-                      isActive
-                        ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-medium border-t border-x border-zinc-200 dark:border-zinc-800"
-                        : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
-                    }`}
-                  >
-                    {tab.session.protocol === "ssh" ? (
-                      <Terminal
-                        className="w-3 h-3 shrink-0"
-                        style={{
-                          color: resolveIconColor(tab.session.icon_color, "#a855f7"),
-                        }}
-                      />
-                    ) : (
-                      <FolderTree
-                        className="w-3 h-3 shrink-0"
-                        style={{
-                          color: resolveIconColor(tab.session.icon_color, "#38bdf8"),
-                        }}
-                      />
-                    )}
-                    <span className="max-w-36 truncate">{tab.session.name}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        duplicateTab(tab.tabId);
+            <div className="h-9 shrink-0 px-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/50 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+                {tabs.map((tab) => {
+                  const isPane1 = tab.tabId === activeTabId;
+                  const isPane2 =
+                    splitDirection !== "none" && tab.tabId === secondaryTabId;
+                  const isVisible = isPane1 || isPane2;
+                  const isBefore =
+                    tabDropTarget?.tabId === tab.tabId &&
+                    tabDropTarget.position === "before";
+                  const isAfter =
+                    tabDropTarget?.tabId === tab.tabId &&
+                    tabDropTarget.position === "after";
+
+                  return (
+                    <div
+                      key={tab.tabId}
+                      data-tab-id={tab.tabId}
+                      onPointerDown={(e) =>
+                        startTabPointerDrag(e, tab.tabId, tab.session.name)
+                      }
+                      onClick={() => {
+                        if (suppressTabClickRef.current) return;
+                        setActiveTab(tab.tabId);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                      className={`group flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs cursor-pointer transition-colors shrink-0 select-none ${
+                        draggingTabId === tab.tabId ? "opacity-40" : ""
+                      } ${
+                        isVisible
+                          ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-medium border-t border-x border-zinc-200 dark:border-zinc-800"
+                          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
+                      } ${isBefore ? "border-l-2 border-l-indigo-500" : ""} ${
+                        isAfter ? "border-r-2 border-r-indigo-500" : ""
+                      }`}
                     >
-                      <Copy className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(tab.tabId);
-                      }}
-                      className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                );
-              })}
+                      {splitDirection !== "none" && (isPane1 || isPane2) && (
+                        <span
+                          className={`text-[9px] font-bold px-1 rounded leading-tight ${
+                            (isPane1 && focusedPane === 1) ||
+                            (isPane2 && focusedPane === 2)
+                              ? "bg-indigo-600 text-white"
+                              : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                          }`}
+                        >
+                          {isPane1 ? "1" : "2"}
+                        </span>
+                      )}
+                      {tab.session.protocol === "ssh" ? (
+                        <TerminalSolidIcon
+                          className="w-3.5 h-3.5 shrink-0"
+                          style={{
+                            color: resolveIconColor(tab.session.icon_color, "#a855f7"),
+                          }}
+                        />
+                      ) : (
+                        <FolderTree
+                          className="w-3 h-3 shrink-0"
+                          style={{
+                            color: resolveIconColor(tab.session.icon_color, "#38bdf8"),
+                          }}
+                        />
+                      )}
+                      <span className="max-w-36 truncate">{tab.session.name}</span>
+                      <button
+                        type="button"
+                        title={t("tabs.duplicate")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          duplicateTab(tab.tabId);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        title={t("tabs.close")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          closeTab(tab.tabId);
+                        }}
+                        className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Split Screen Controls */}
+              <div className="flex items-center gap-0.5 shrink-0 bg-zinc-200/70 dark:bg-zinc-800/70 p-0.5 rounded-md">
+                <button
+                  type="button"
+                  title={t("tabs.split_single")}
+                  onClick={() => setSplitDirection("none")}
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    splitDirection === "none"
+                      ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                      : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  }`}
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title={t("tabs.split_horizontal")}
+                  onClick={() =>
+                    setSplitDirection(
+                      splitDirection === "horizontal" ? "none" : "horizontal"
+                    )
+                  }
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    splitDirection === "horizontal"
+                      ? "bg-white dark:bg-zinc-950 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  }`}
+                >
+                  <Columns2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title={t("tabs.split_vertical")}
+                  onClick={() =>
+                    setSplitDirection(
+                      splitDirection === "vertical" ? "none" : "vertical"
+                    )
+                  }
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    splitDirection === "vertical"
+                      ? "bg-white dark:bg-zinc-950 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  }`}
+                >
+                  <Rows2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
 
           {/* Workspace Body */}
           {tabs.length === 0 ? (
-            <HomePage onQuickConnect={() => setSessionModal({ mode: "quick" })} />
+            <HomePage
+              onQuickConnect={(sessionKind) =>
+                setSessionModal({ mode: "quick", sessionKind })
+              }
+            />
           ) : (
-            tabs.map((tab) =>
-              tab.session.protocol === "ssh" ? (
-                <SshTerminalWorkspace
-                  key={tab.tabId}
-                  tab={tab}
-                  isActive={tab.tabId === activeTabId}
+            <div
+              ref={workspaceContainerRef}
+              className={`flex-1 min-h-0 min-w-0 flex ${
+                splitDirection === "vertical" ? "flex-col" : "flex-row"
+              }`}
+            >
+              {tabs.map((tab) => {
+                const isSplit = splitDirection !== "none";
+                const isPane1 = tab.tabId === activeTabId;
+                const isPane2 = isSplit && tab.tabId === secondaryTabId;
+                const isVisible = isPane1 || isPane2;
+
+                const paneStyle: React.CSSProperties | undefined = !isVisible
+                  ? undefined
+                  : !isSplit
+                  ? { flex: "1 1 0%" }
+                  : isPane1
+                  ? { order: 1, flexBasis: `${splitRatio}%`, flexGrow: 0, flexShrink: 0 }
+                  : { order: 3, flexBasis: `${100 - splitRatio}%`, flexGrow: 1, flexShrink: 1 };
+
+                const isFocused =
+                  isSplit &&
+                  ((isPane1 && focusedPane === 1) || (isPane2 && focusedPane === 2));
+
+                return (
+                  <div
+                    key={tab.tabId}
+                    onMouseDown={() => {
+                      if (!isSplit) return;
+                      if (isPane1 && focusedPane !== 1) setFocusedPane(1);
+                      else if (isPane2 && focusedPane !== 2) setFocusedPane(2);
+                    }}
+                    style={paneStyle}
+                    className={`${
+                      isVisible ? "flex flex-col min-h-0 min-w-0 overflow-hidden" : "hidden"
+                    } ${
+                      isFocused
+                        ? "ring-1 ring-inset ring-indigo-500/70"
+                        : ""
+                    }`}
+                  >
+                    {tab.session.protocol === "ssh" ? (
+                      <SshTerminalWorkspace tab={tab} isActive={isVisible} />
+                    ) : (
+                      <SessionWorkspace tab={tab} isActive={isVisible} />
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Resizable Split Handle */}
+              {splitDirection !== "none" && (
+                <div
+                  role="separator"
+                  onPointerDown={handleStartSplitResize}
+                  style={{ order: 2 }}
+                  className={`shrink-0 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500 dark:hover:bg-indigo-500 transition-colors ${
+                    splitDirection === "vertical"
+                      ? "h-1.5 w-full cursor-row-resize"
+                      : "w-1.5 h-full cursor-col-resize"
+                  }`}
                 />
-              ) : (
-                <SessionWorkspace
-                  key={tab.tabId}
-                  tab={tab}
-                  isActive={tab.tabId === activeTabId}
-                />
-              )
-            )
+              )}
+
+              {/* Empty Secondary Pane Placeholder when Split is active with only 1 tab */}
+              {splitDirection !== "none" && !secondaryTabId && (
+                <div
+                  onMouseDown={() => setFocusedPane(2)}
+                  style={{
+                    order: 3,
+                    flexBasis: `${100 - splitRatio}%`,
+                    flexGrow: 1,
+                    flexShrink: 1,
+                  }}
+                  className={`flex flex-col items-center justify-center p-6 text-center bg-zinc-50/50 dark:bg-zinc-950/60 min-h-0 min-w-0 ${
+                    focusedPane === 2 ? "ring-1 ring-inset ring-indigo-500/70" : ""
+                  }`}
+                >
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mb-3">
+                    {t("tabs.split_empty_hint")}
+                  </p>
+                  {activeTabId && (
+                    <button
+                      type="button"
+                      onClick={() => duplicateTab(activeTabId)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {t("tabs.split_duplicate_current")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </main>
       </div>
+
+      {tabDragGhost && (
+        <div
+          style={{
+            left: tabDragGhost.x + 12,
+            top: tabDragGhost.y + 12,
+          }}
+          className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium shadow-xl max-w-44 truncate"
+        >
+          {tabDragGhost.label}
+        </div>
+      )}
 
       {/* Modals */}
       {showCredentials && (
@@ -396,6 +698,7 @@ export function App() {
       {sessionModal && (
         <SessionModal
           mode={sessionModal.mode}
+          sessionKind={sessionModal.sessionKind}
           initialFolderId={sessionModal.folderId}
           session={sessionModal.session}
           onClose={() => setSessionModal(null)}

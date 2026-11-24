@@ -72,6 +72,16 @@ export const api = {
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   markSessionOpened: (id: string) =>
     invoke<string>("mark_session_opened", { id }),
+  reorderTreeItems: (
+    kind: "folder" | "session",
+    parentId: string | null,
+    orderedIds: string[]
+  ) =>
+    invoke<void>("reorder_tree_items", {
+      kind,
+      parentId,
+      orderedIds,
+    }),
 
   // Config
   getAppConfig: () => invoke<AppConfig>("get_app_config"),
@@ -166,4 +176,8 @@ export const api = {
     invoke<void>("ssh_resize", { tabId, cols, rows }),
   sshDisconnect: (tabId: string) =>
     invoke<void>("ssh_disconnect", { tabId }),
+  sshStartLog: (tabId: string, filePath: string) =>
+    invoke<void>("ssh_start_log", { tabId, filePath }),
+  sshStopLog: (tabId: string) =>
+    invoke<void>("ssh_stop_log", { tabId }),
 };

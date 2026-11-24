@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "CD Connector",
+    "name": "CD Remote",
     "subtitle": "Cliente de Transferencia de Archivos y SSH",
-    "loading": "Cargando CD Connector...",
+    "loading": "Cargando CD Remote...",
     "close": "Cerrar",
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -14,7 +14,7 @@
     "none": "Ninguna"
   },
   "setup": {
-    "title": "Bienvenido a CD Connector",
+    "title": "Bienvenido a CD Remote",
     "subtitle": "Crea una nueva bóveda local o genera una base de datos a partir de un respaldo JSON existente.",
     "tab_new": "Nueva bóveda",
     "tab_from_json": "Desde respaldo JSON",
@@ -54,6 +54,8 @@
     "toggle_queue": "Cola de transferencias (Ctrl+3)",
     "toggle_console": "Consola / Registro (Ctrl+2)",
     "quick_connect": "Conexión rápida",
+    "quick_ssh": "Terminal rápido",
+    "quick_transfer": "Transferencia rápida",
     "credentials": "Credenciales",
     "import_export": "Importar / Exportar",
     "settings": "Ajustes",
@@ -64,6 +66,9 @@
     "title": "Sesiones",
     "new_folder": "Nueva carpeta",
     "new_session": "Nueva sesión",
+    "new_ssh": "Nuevo terminal SSH",
+    "new_transfer": "Nueva sesión de transferencia",
+    "duplicate": "Duplicar",
     "folder_name_placeholder": "Nombre de la carpeta",
     "empty": "Aún no tienes sesiones guardadas. Crea una sesión o carpeta para empezar.",
     "root_drop": "Soltar aquí para mover a la raíz",
@@ -101,6 +106,15 @@
     "new_title": "Nueva Sesión",
     "edit_title": "Editar Sesión",
     "quick_title": "Conexión Rápida",
+    "new_ssh_title": "Nuevo Terminal SSH",
+    "edit_ssh_title": "Editar Terminal SSH",
+    "duplicate_ssh_title": "Duplicar Terminal SSH",
+    "quick_ssh_title": "Terminal SSH Rápido",
+    "new_transfer_title": "Nueva Sesión de Transferencia",
+    "edit_transfer_title": "Editar Sesión de Transferencia",
+    "duplicate_transfer_title": "Duplicar Sesión de Transferencia",
+    "quick_transfer_title": "Transferencia Rápida",
+    "copy_suffix": "copia",
     "name": "Nombre",
     "name_placeholder": "Ej. Servidor Web Producción",
     "folder": "Carpeta",
@@ -246,7 +260,23 @@
     "drop_to_upload": "Suelta aquí archivos o carpetas para subir",
     "drop_to_download": "Suelta aquí archivos o carpetas para descargar",
     "open_ssh_here": "Abrir terminal SSH",
-    "ssh_disconnected_hint": "Pulsa [R] para reconectar o [Intro] para cerrar la pestaña..."
+    "ssh_disconnected_hint": "Pulsa [R] para reconectar o [Intro] para cerrar la pestaña...",
+    "ssh_log_start": "Log",
+    "ssh_log_recording": "Grabando",
+    "ssh_log_start_tooltip": "Guardar la salida del terminal en un archivo de log",
+    "ssh_log_stop_tooltip": "Detener grabación ({{path}})",
+    "multiline_paste_title": "Confirmar pegado multilínea",
+    "multiline_paste_message": "Vas a pegar {{count}} líneas en el terminal. Revisa el contenido antes de continuar:",
+    "multiline_paste_confirm": "Pegar"
+  },
+  "tabs": {
+    "duplicate": "Duplicar pestaña",
+    "close": "Cerrar pestaña",
+    "split_single": "Vista simple",
+    "split_horizontal": "Dividir lado a lado",
+    "split_vertical": "Dividir arriba y abajo",
+    "split_empty_hint": "Abre otra sesión o haz clic en una pestaña para mostrarla en este panel.",
+    "split_duplicate_current": "Duplicar la pestaña actual aquí"
   },
   "queue": {
     "filter_all": "Todas",
@@ -309,7 +339,7 @@
     "no_results": "No hay sesiones que coincidan con tu búsqueda."
   },
   "about": {
-    "title": "Acerca de CD Connector",
+    "title": "Acerca de CD Remote",
     "version": "Versión",
     "author": "Autor",
     "license": "Licencia",

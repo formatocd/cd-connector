@@ -7,9 +7,41 @@ mod protocols;
 mod state;
 mod transfer;
 
+use std::path::Path;
 use tauri::Manager;
 
 use state::AppState;
+
+/// Migrates existing CD Connector database and vault key into the new CD Remote data directory
+/// if `cd-remote.db` does not exist yet.
+fn migrate_legacy_data_if_needed(app_data_dir: &Path, db_path: &Path) {
+    if db_path.exists() {
+        return;
+    }
+    let Some(parent) = app_data_dir.parent() else {
+        return;
+    };
+    let legacy_dir = parent.join("com.formatocd.cd-connector");
+    let legacy_db = legacy_dir.join("cd-connector.db");
+    if !legacy_db.exists() {
+        return;
+    }
+    if std::fs::create_dir_all(app_data_dir).is_err() {
+        return;
+    }
+    let _ = std::fs::copy(&legacy_db, db_path);
+    for suffix in ["-wal", "-shm"] {
+        let legacy_sidecar = legacy_dir.join(format!("cd-connector.db{suffix}"));
+        if legacy_sidecar.exists() {
+            let _ = std::fs::copy(&legacy_sidecar, app_data_dir.join(format!("cd-remote.db{suffix}")));
+        }
+    }
+    let legacy_key = legacy_dir.join("vault.key");
+    let new_key = app_data_dir.join("vault.key");
+    if legacy_key.exists() && !new_key.exists() {
+        let _ = std::fs::copy(&legacy_key, &new_key);
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,7 +52,8 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .expect("Failed to resolve app data directory");
-            let db_path = app_data_dir.join("cd-connector.db");
+            let db_path = app_data_dir.join("cd-remote.db");
+            migrate_legacy_data_if_needed(&app_data_dir, &db_path);
             let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
             let initial_config = db::load_app_config(&conn).unwrap_or_default();
 
@@ -46,6 +79,7 @@ pub fn run() {
             commands::sessions::update_session,
             commands::sessions::delete_session,
             commands::sessions::mark_session_opened,
+            commands::sessions::reorder_tree_items,
             commands::config::get_app_config,
             commands::config::update_app_config,
             commands::portability::export_data,
@@ -87,7 +121,9 @@ pub fn run() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_disconnect,
+            commands::ssh::ssh_start_log,
+            commands::ssh::ssh_stop_log,
         ])
         .run(tauri::generate_context!())
-        .expect("Error while running CD Connector");
+        .expect("Error while running CD Remote");
 }

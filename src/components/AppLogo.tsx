@@ -14,7 +14,7 @@ export function AppLogo({ className = "w-12 h-12" }: AppLogoProps) {
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 512 512"
       className={className}
-      aria-label="CD Connector"
+      aria-label="CD Remote"
     >
       <defs>
         <linearGradient id={bgId} x1="0%" y1="0%" x2="100%" y2="100%">

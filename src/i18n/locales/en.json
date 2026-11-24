@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "CD Connector",
+    "name": "CD Remote",
     "subtitle": "File Transfer & SSH Client",
-    "loading": "Loading CD Connector...",
+    "loading": "Loading CD Remote...",
     "close": "Close",
     "cancel": "Cancel",
     "save": "Save",
@@ -14,7 +14,7 @@
     "none": "None"
   },
   "setup": {
-    "title": "Welcome to CD Connector",
+    "title": "Welcome to CD Remote",
     "subtitle": "Create a new local vault or generate a database from an existing JSON backup.",
     "tab_new": "New vault",
     "tab_from_json": "From JSON backup",
@@ -54,6 +54,8 @@
     "toggle_queue": "Transfer queue (Ctrl+3)",
     "toggle_console": "Console / Log (Ctrl+2)",
     "quick_connect": "Quick Connect",
+    "quick_ssh": "Quick SSH",
+    "quick_transfer": "Quick Transfer",
     "credentials": "Credentials",
     "import_export": "Import / Export",
     "settings": "Settings",
@@ -64,6 +66,9 @@
     "title": "Sessions",
     "new_folder": "New folder",
     "new_session": "New session",
+    "new_ssh": "New SSH terminal",
+    "new_transfer": "New transfer session",
+    "duplicate": "Duplicate",
     "folder_name_placeholder": "Folder name",
     "empty": "No saved sessions yet. Create a session or folder to get started.",
     "root_drop": "Drop here to move to root",
@@ -101,6 +106,15 @@
     "new_title": "New Session",
     "edit_title": "Edit Session",
     "quick_title": "Quick Connect",
+    "new_ssh_title": "New SSH Terminal",
+    "edit_ssh_title": "Edit SSH Terminal",
+    "duplicate_ssh_title": "Duplicate SSH Terminal",
+    "quick_ssh_title": "Quick SSH Terminal",
+    "new_transfer_title": "New Transfer Session",
+    "edit_transfer_title": "Edit Transfer Session",
+    "duplicate_transfer_title": "Duplicate Transfer Session",
+    "quick_transfer_title": "Quick Transfer Session",
+    "copy_suffix": "copy",
     "name": "Name",
     "name_placeholder": "e.g. Production Web Server",
     "folder": "Folder",
@@ -246,7 +260,23 @@
     "drop_to_upload": "Drop files or folders here to upload",
     "drop_to_download": "Drop files or folders here to download",
     "open_ssh_here": "Open SSH Terminal",
-    "ssh_disconnected_hint": "Press [R] to reconnect or [Enter] to close tab..."
+    "ssh_disconnected_hint": "Press [R] to reconnect or [Enter] to close tab...",
+    "ssh_log_start": "Log",
+    "ssh_log_recording": "Logging",
+    "ssh_log_start_tooltip": "Save terminal output to a log file",
+    "ssh_log_stop_tooltip": "Stop logging ({{path}})",
+    "multiline_paste_title": "Confirm multiline paste",
+    "multiline_paste_message": "You are about to paste {{count}} lines into the terminal. Review the content before continuing:",
+    "multiline_paste_confirm": "Paste"
+  },
+  "tabs": {
+    "duplicate": "Duplicate tab",
+    "close": "Close tab",
+    "split_single": "Single view",
+    "split_horizontal": "Split side by side",
+    "split_vertical": "Split top and bottom",
+    "split_empty_hint": "Open another session or click a tab to display it in this pane.",
+    "split_duplicate_current": "Duplicate current tab here"
   },
   "queue": {
     "filter_all": "All",
@@ -309,7 +339,7 @@
     "no_results": "No sessions match your search."
   },
   "about": {
-    "title": "About CD Connector",
+    "title": "About CD Remote",
     "version": "Version",
     "author": "Author",
     "license": "License",
