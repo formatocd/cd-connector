@@ -692,6 +692,22 @@ Section Install
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
 
+  ; Persist the language selected in the installer so the app uses it on first launch
+  StrCpy $0 "en"
+  ${If} $LANGUAGE == 1034
+  ${OrIf} $LANGUAGE == 3082
+    StrCpy $0 "es"
+  ${ElseIf} $LANGUAGE == 1040
+    StrCpy $0 "it"
+  ${ElseIf} $LANGUAGE == 1036
+    StrCpy $0 "fr"
+  ${ElseIf} $LANGUAGE == 1031
+    StrCpy $0 "de"
+  ${EndIf}
+  FileOpen $1 "$INSTDIR\installer_lang.txt" w
+  FileWrite $1 $0
+  FileClose $1
+
   ; Copy resources
   {{#each resources_dirs}}
     CreateDirectory "$INSTDIR\\{{this}}"
@@ -829,6 +845,7 @@ Section Uninstall
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\installer_lang.txt"
 
   ; Delete resources
   {{#each resources}}

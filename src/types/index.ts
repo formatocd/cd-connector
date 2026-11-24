@@ -90,7 +90,7 @@ export interface SessionInput {
 
 export interface AppConfig {
   theme: "light" | "dark" | "system";
-  language: "es" | "en";
+  language: "es" | "en" | "it" | "fr" | "de";
   max_concurrent_transfers: number;
   upload_limit_kbps: number;
   download_limit_kbps: number;

@@ -43,7 +43,9 @@
     ],
     "windows": {
       "nsis": {
-        "template": "./windows/installer.nsi"
+        "template": "./windows/installer.nsi",
+        "languages": ["English", "Spanish", "Italian", "French", "German"],
+        "displayLanguageSelector": true
       }
     }
   }
