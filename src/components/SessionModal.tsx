@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   FolderTree,
-  Terminal,
   X,
   FolderOpen,
   Upload,
@@ -14,16 +13,19 @@ import {
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { IconColorPicker, resolveIconColor } from "./IconColorPicker";
+import { TerminalSolidIcon } from "./TerminalSolidIcon";
 import {
   defaultPortForProtocol,
   extractErrorMessage,
   type AuthType,
   type Protocol,
   type Session,
+  type SessionKind,
 } from "../types";
 
 interface SessionModalProps {
-  mode: "create" | "edit" | "quick";
+  mode: "create" | "edit" | "duplicate" | "quick";
+  sessionKind: SessionKind;
   initialFolderId?: string | null;
   session?: Session | null;
   onClose: () => void;
@@ -33,6 +35,7 @@ type SessionAuthMode = "manual" | "reusable" | "none";
 
 export function SessionModal({
   mode,
+  sessionKind,
   initialFolderId = null,
   session = null,
   onClose,
@@ -40,12 +43,21 @@ export function SessionModal({
   const { t } = useTranslation();
   const { folders, credentials, refreshVaultData, openSessionTab } = useAppStore();
 
+  const isSsh = sessionKind === "ssh";
+  const defaultProtocol: Protocol = isSsh
+    ? "ssh"
+    : session && session.protocol !== "ssh"
+    ? session.protocol
+    : "sftp";
+
   const reusableCredentials = credentials.filter((c) => c.reusable);
   const existingLinkedCred = session?.credential_id
     ? credentials.find((c) => c.id === session.credential_id) ?? null
     : null;
-  const editingPrivateCred =
+  const sourcePrivateCred =
     existingLinkedCred && !existingLinkedCred.reusable ? existingLinkedCred : null;
+  const editingPrivateCred = mode === "edit" ? sourcePrivateCred : null;
+  const duplicatingPrivateCred = mode === "duplicate" ? sourcePrivateCred : null;
 
   const initialAuthMode: SessionAuthMode = existingLinkedCred
     ? existingLinkedCred.reusable
@@ -55,14 +67,18 @@ export function SessionModal({
     ? "manual"
     : "none";
 
-  const [name, setName] = useState(session?.name ?? "");
+  const [name, setName] = useState(
+    mode === "duplicate" && session
+      ? `${session.name} (${t("session.copy_suffix")})`
+      : session?.name ?? ""
+  );
   const [folderId, setFolderId] = useState<string>(
     session?.folder_id ?? initialFolderId ?? ""
   );
-  const [protocol, setProtocol] = useState<Protocol>(session?.protocol ?? "sftp");
+  const [protocol, setProtocol] = useState<Protocol>(defaultProtocol);
   const [host, setHost] = useState(session?.host ?? "");
   const [port, setPort] = useState<number>(
-    session?.port ?? defaultPortForProtocol(session?.protocol ?? "sftp")
+    session?.port ?? defaultPortForProtocol(defaultProtocol)
   );
 
   // Auth state
@@ -71,14 +87,14 @@ export function SessionModal({
     existingLinkedCred?.reusable ? existingLinkedCred.id : ""
   );
   const [manualUsername, setManualUsername] = useState(
-    editingPrivateCred ? editingPrivateCred.username : ""
+    sourcePrivateCred ? sourcePrivateCred.username : ""
   );
   const [manualAuthType, setManualAuthType] = useState<AuthType>(
-    editingPrivateCred ? editingPrivateCred.auth_type : "password"
+    sourcePrivateCred ? sourcePrivateCred.auth_type : "password"
   );
   const [manualPassword, setManualPassword] = useState("");
   const [rememberPassword, setRememberPassword] = useState<boolean>(
-    editingPrivateCred ? editingPrivateCred.has_secret : true
+    sourcePrivateCred ? sourcePrivateCred.has_secret : true
   );
   const [manualPrivateKey, setManualPrivateKey] = useState("");
   const [manualPassphrase, setManualPassphrase] = useState("");
@@ -140,8 +156,8 @@ export function SessionModal({
           : manualUsername.trim() || host.trim() || "Credential");
 
       const keepExisting =
-        !!editingPrivateCred &&
-        editingPrivateCred.auth_type === manualAuthType &&
+        !!sourcePrivateCred &&
+        sourcePrivateCred.auth_type === manualAuthType &&
         ((manualAuthType === "password" && rememberPassword && !manualPassword) ||
           (manualAuthType === "ssh_key" && !manualPrivateKey && !manualPassphrase));
 
@@ -156,6 +172,8 @@ export function SessionModal({
         private_key: manualAuthType === "ssh_key" ? manualPrivateKey : undefined,
         passphrase: manualAuthType === "ssh_key" ? manualPassphrase : undefined,
         keep_existing_secret: keepExisting,
+        clone_from_credential_id:
+          duplicatingPrivateCred && keepExisting ? duplicatingPrivateCred.id : undefined,
         reusable: true,
       };
 
@@ -215,8 +233,8 @@ export function SessionModal({
         finalCredentialId = credentialId || null;
       } else if (authMode === "manual") {
         const keepExisting =
-          !!editingPrivateCred &&
-          editingPrivateCred.auth_type === manualAuthType &&
+          !!sourcePrivateCred &&
+          sourcePrivateCred.auth_type === manualAuthType &&
           ((manualAuthType === "password" &&
             rememberPassword &&
             !manualPassword) ||
@@ -235,6 +253,10 @@ export function SessionModal({
           private_key: manualAuthType === "ssh_key" ? manualPrivateKey : undefined,
           passphrase: manualAuthType === "ssh_key" ? manualPassphrase : undefined,
           keep_existing_secret: keepExisting,
+          clone_from_credential_id:
+            duplicatingPrivateCred && keepExisting
+              ? duplicatingPrivateCred.id
+              : undefined,
           reusable: false,
         };
 
@@ -289,20 +311,29 @@ export function SessionModal({
     protocol === "ftps_implicit";
   const isFtps = protocol === "ftps_explicit" || protocol === "ftps_implicit";
 
-  const title =
-    mode === "quick"
-      ? t("session.quick_title")
+  const title = isSsh
+    ? mode === "quick"
+      ? t("session.quick_ssh_title")
       : mode === "edit"
-      ? t("session.edit_title")
-      : t("session.new_title");
+      ? t("session.edit_ssh_title")
+      : mode === "duplicate"
+      ? t("session.duplicate_ssh_title")
+      : t("session.new_ssh_title")
+    : mode === "quick"
+    ? t("session.quick_transfer_title")
+    : mode === "edit"
+    ? t("session.edit_transfer_title")
+    : mode === "duplicate"
+    ? t("session.duplicate_transfer_title")
+    : t("session.new_transfer_title");
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="w-full max-w-xl max-h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            {protocol === "ssh" ? (
-              <Terminal
+            {isSsh ? (
+              <TerminalSolidIcon
                 className="w-5 h-5"
                 style={{ color: resolveIconColor(iconColor, "#a855f7") }}
               />
@@ -378,24 +409,25 @@ export function SessionModal({
           )}
 
           <div className="grid grid-cols-12 gap-3">
-            <div className="col-span-4">
-              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
-                {t("session.protocol")}
-              </label>
-              <select
-                value={protocol}
-                onChange={(e) => handleProtocolChange(e.target.value as Protocol)}
-                className="w-full px-2.5 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="sftp">SFTP (SSH)</option>
-                <option value="ftps_explicit">FTPS (Explicit)</option>
-                <option value="ftps_implicit">FTPS (Implicit)</option>
-                <option value="ftp">FTP</option>
-                <option value="ssh">SSH Terminal</option>
-              </select>
-            </div>
+            {!isSsh && (
+              <div className="col-span-4">
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  {t("session.protocol")}
+                </label>
+                <select
+                  value={protocol}
+                  onChange={(e) => handleProtocolChange(e.target.value as Protocol)}
+                  className="w-full px-2.5 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="sftp">SFTP (SSH)</option>
+                  <option value="ftps_explicit">FTPS (Explicit)</option>
+                  <option value="ftps_implicit">FTPS (Implicit)</option>
+                  <option value="ftp">FTP</option>
+                </select>
+              </div>
+            )}
 
-            <div className="col-span-6">
+            <div className={isSsh ? "col-span-9" : "col-span-6"}>
               <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 {t("session.host")} *
               </label>
@@ -409,7 +441,7 @@ export function SessionModal({
               />
             </div>
 
-            <div className="col-span-2">
+            <div className={isSsh ? "col-span-3" : "col-span-2"}>
               <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
                 {t("session.port")}
               </label>
@@ -537,7 +569,7 @@ export function SessionModal({
                         <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
                           {t("credentials.password")}
                         </label>
-                        {editingPrivateCred?.has_secret && rememberPassword && (
+                        {sourcePrivateCred?.has_secret && rememberPassword && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                             <ShieldCheck className="w-3.5 h-3.5" />
                             {t("session.password_saved_badge")}
@@ -550,7 +582,7 @@ export function SessionModal({
                         value={manualPassword}
                         onChange={(e) => setManualPassword(e.target.value)}
                         placeholder={
-                          editingPrivateCred?.has_secret && rememberPassword
+                          sourcePrivateCred?.has_secret && rememberPassword
                             ? `•••••••• (${t("credentials.keep_secret_hint")})`
                             : ""
                         }
@@ -596,7 +628,7 @@ export function SessionModal({
                         value={manualPrivateKey}
                         onChange={(e) => setManualPrivateKey(e.target.value)}
                         placeholder={
-                          editingPrivateCred?.has_secret
+                          sourcePrivateCred?.has_secret
                             ? t("credentials.keep_secret_hint")
                             : "-----BEGIN OPENSSH PRIVATE KEY-----"
                         }
@@ -612,7 +644,7 @@ export function SessionModal({
                         value={manualPassphrase}
                         onChange={(e) => setManualPassphrase(e.target.value)}
                         placeholder={
-                          editingPrivateCred?.has_passphrase
+                          sourcePrivateCred?.has_passphrase
                             ? t("credentials.keep_secret_hint")
                             : ""
                         }

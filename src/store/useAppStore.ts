@@ -29,6 +29,8 @@ const DEFAULT_CONFIG: AppConfig = {
   terminal_copy_on_select: true,
 };
 
+export type SplitDirection = "none" | "horizontal" | "vertical";
+
 interface AppStoreState {
   loading: boolean;
   security: SecurityStatus;
@@ -38,6 +40,9 @@ interface AppStoreState {
   credentials: CredentialSummary[];
   tabs: OpenTab[];
   activeTabId: string | null;
+  secondaryTabId: string | null;
+  splitDirection: SplitDirection;
+  focusedPane: 1 | 2;
   sessionLogs: Record<string, SessionLogEvent[]>;
   transfers: TransferItem[];
   conflictQueue: ConflictPromptEvent[];
@@ -51,6 +56,11 @@ interface AppStoreState {
   closeTab: (tabId: string) => void;
   duplicateTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
+  reorderTabs: (sourceTabId: string, targetTabId: string, position: "before" | "after") => void;
+  setSplitDirection: (dir: SplitDirection) => void;
+  setSecondaryTab: (tabId: string | null) => void;
+  setFocusedPane: (pane: 1 | 2) => void;
+  openTabInSplit: (tabId: string) => void;
   appendSessionLog: (event: SessionLogEvent) => void;
   clearSessionLogs: (tabId: string) => void;
   setTransfers: (items: TransferItem[]) => void;
@@ -69,6 +79,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   credentials: [],
   tabs: [],
   activeTabId: null,
+  secondaryTabId: null,
+  splitDirection: "none",
+  focusedPane: 1,
   sessionLogs: {},
   transfers: [],
   conflictQueue: [],
@@ -102,7 +115,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setSecurity: (security) => {
     set({ security });
     if (!security.unlocked) {
-      set({ folders: [], sessions: [], credentials: [], tabs: [], activeTabId: null });
+      set({
+        folders: [],
+        sessions: [],
+        credentials: [],
+        tabs: [],
+        activeTabId: null,
+        secondaryTabId: null,
+        splitDirection: "none",
+        focusedPane: 1,
+      });
     }
   },
 
@@ -121,15 +143,21 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       !session.id.startsWith("quick-") && !session.id.startsWith("ssh-from-");
     const nowIso = new Date().toISOString();
 
-    set((state) => ({
-      tabs: [...state.tabs, { tabId, session, transientAuth }],
-      activeTabId: tabId,
-      sessions: isSaved
-        ? state.sessions.map((s) =>
-            s.id === session.id ? { ...s, last_opened_at: nowIso } : s
-          )
-        : state.sessions,
-    }));
+    set((state) => {
+      const assignToSecondary =
+        state.splitDirection !== "none" &&
+        (state.focusedPane === 2 || state.secondaryTabId === null);
+      return {
+        tabs: [...state.tabs, { tabId, session, transientAuth }],
+        activeTabId: assignToSecondary ? state.activeTabId ?? tabId : tabId,
+        secondaryTabId: assignToSecondary ? tabId : state.secondaryTabId,
+        sessions: isSaved
+          ? state.sessions.map((s) =>
+              s.id === session.id ? { ...s, last_opened_at: nowIso } : s
+            )
+          : state.sessions,
+      };
+    });
 
     if (isSaved) {
       api.markSessionOpened(session.id).catch(() => {});
@@ -139,20 +167,55 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   closeTab: (tabId) => {
     api.disconnectSession(tabId).catch(() => {});
     api.sshDisconnect(tabId).catch(() => {});
+    api.sshStopLog(tabId).catch(() => {});
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.tabId === tabId);
       const nextTabs = state.tabs.filter((t) => t.tabId !== tabId);
       let nextActive = state.activeTabId;
-      if (state.activeTabId === tabId) {
-        if (nextTabs.length === 0) {
-          nextActive = null;
-        } else {
-          nextActive = nextTabs[Math.min(idx, nextTabs.length - 1)].tabId;
+      let nextSecondary = state.secondaryTabId;
+      let nextSplit = state.splitDirection;
+      let nextFocused = state.focusedPane;
+
+      if (nextSecondary === tabId) {
+        const candidate = nextTabs.find((t) => t.tabId !== nextActive)?.tabId ?? null;
+        nextSecondary = candidate;
+        if (!candidate) {
+          nextSplit = "none";
+          nextFocused = 1;
         }
       }
+
+      if (nextActive === tabId) {
+        if (nextTabs.length === 0) {
+          nextActive = null;
+          nextSecondary = null;
+          nextSplit = "none";
+          nextFocused = 1;
+        } else {
+          const otherThanSecondary = nextTabs.filter((t) => t.tabId !== nextSecondary);
+          if (otherThanSecondary.length > 0) {
+            nextActive =
+              otherThanSecondary[Math.min(idx, otherThanSecondary.length - 1)].tabId;
+          } else {
+            // Only the secondary tab remains: promote it to primary and exit split
+            nextActive = nextTabs[0].tabId;
+            nextSecondary = null;
+            nextSplit = "none";
+            nextFocused = 1;
+          }
+        }
+      }
+
       const nextLogs = { ...state.sessionLogs };
       delete nextLogs[tabId];
-      return { tabs: nextTabs, activeTabId: nextActive, sessionLogs: nextLogs };
+      return {
+        tabs: nextTabs,
+        activeTabId: nextActive,
+        secondaryTabId: nextSecondary,
+        splitDirection: nextSplit,
+        focusedPane: nextFocused,
+        sessionLogs: nextLogs,
+      };
     });
   },
 
@@ -162,7 +225,73 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     get().openSessionTab(target.session, target.transientAuth);
   },
 
-  setActiveTab: (tabId) => set({ activeTabId: tabId }),
+  setActiveTab: (tabId) =>
+    set((state) => {
+      if (state.splitDirection === "none") {
+        return { activeTabId: tabId, focusedPane: 1 };
+      }
+      if (tabId === state.activeTabId) {
+        return { focusedPane: 1 };
+      }
+      if (tabId === state.secondaryTabId) {
+        return { focusedPane: 2 };
+      }
+      if (state.focusedPane === 2) {
+        return { secondaryTabId: tabId };
+      }
+      return { activeTabId: tabId };
+    }),
+
+  reorderTabs: (sourceTabId, targetTabId, position) =>
+    set((state) => {
+      if (sourceTabId === targetTabId) return state;
+      const sourceTab = state.tabs.find((t) => t.tabId === sourceTabId);
+      if (!sourceTab) return state;
+      const filtered = state.tabs.filter((t) => t.tabId !== sourceTabId);
+      const targetIdx = filtered.findIndex((t) => t.tabId === targetTabId);
+      if (targetIdx === -1) return state;
+      const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+      filtered.splice(insertIdx, 0, sourceTab);
+      return { tabs: filtered };
+    }),
+
+  setSplitDirection: (dir) =>
+    set((state) => {
+      if (dir === "none") {
+        return { splitDirection: "none", secondaryTabId: null, focusedPane: 1 };
+      }
+      let nextSecondary = state.secondaryTabId;
+      if (!nextSecondary || nextSecondary === state.activeTabId) {
+        nextSecondary =
+          state.tabs.find((t) => t.tabId !== state.activeTabId)?.tabId ?? null;
+      }
+      return {
+        splitDirection: dir,
+        secondaryTabId: nextSecondary,
+        focusedPane: nextSecondary ? state.focusedPane : 2,
+      };
+    }),
+
+  setSecondaryTab: (tabId) => set({ secondaryTabId: tabId }),
+
+  setFocusedPane: (pane) => set({ focusedPane: pane }),
+
+  openTabInSplit: (tabId) =>
+    set((state) => {
+      if (tabId === state.activeTabId) {
+        const other = state.tabs.find((t) => t.tabId !== tabId)?.tabId ?? null;
+        return {
+          splitDirection: state.splitDirection === "none" ? "horizontal" : state.splitDirection,
+          secondaryTabId: other,
+          focusedPane: 2,
+        };
+      }
+      return {
+        splitDirection: state.splitDirection === "none" ? "horizontal" : state.splitDirection,
+        secondaryTabId: tabId,
+        focusedPane: 2,
+      };
+    }),
 
   appendSessionLog: (event) => {
     set((state) => {

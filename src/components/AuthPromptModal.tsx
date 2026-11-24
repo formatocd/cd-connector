@@ -89,7 +89,7 @@ export function AuthPromptModal({
             {isFtpLike ? (
               <button
                 type="button"
-                onClick={() => onSubmit("anonymous", "anonymous@cd-connector")}
+                onClick={() => onSubmit("anonymous", "anonymous@cd-remote")}
                 className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
               >
                 {t("auth_prompt.anonymous_button")}

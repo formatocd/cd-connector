@@ -38,9 +38,19 @@ pub fn local_list_roots() -> AppResult<Vec<String>> {
 
 #[tauri::command]
 pub fn local_list_dir(path: String) -> AppResult<Vec<FileEntry>> {
-    let target = Path::new(&path);
+    let trimmed = path.trim();
+    #[cfg(windows)]
+    let normalized = if trimmed.starts_with("//") {
+        trimmed.replace('/', "\\")
+    } else {
+        trimmed.to_string()
+    };
+    #[cfg(not(windows))]
+    let normalized = trimmed.to_string();
+
+    let target = Path::new(&normalized);
     if !target.exists() {
-        return Err(AppError::NotFound(format!("Local path not found: {path}")));
+        return Err(AppError::NotFound(format!("Local path not found: {normalized}")));
     }
 
     let read_dir = fs::read_dir(target)?;

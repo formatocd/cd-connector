@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { Plug, Unplug, Trash2 } from "lucide-react";
+import { Plug, Unplug, Trash2, FileText, Square, AlertTriangle } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { HostKeyModal } from "./HostKeyModal";
@@ -76,6 +77,10 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
   const [runtimeAuth, setRuntimeAuth] = useState<{ username: string; password?: string } | null>(
     transientAuth ?? null
   );
+  const [logFilePath, setLogFilePath] = useState<string | null>(null);
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; lineCount: number } | null>(
+    null
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -84,6 +89,58 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
   const connectRef = useRef<() => void>(() => {});
   const closeTabRef = useRef<() => void>(() => {});
   const copyOnSelectRef = useRef<boolean>(config.terminal_copy_on_select);
+  const handlePasteTextRef = useRef<(text: string) => void>(() => {});
+
+  const handlePasteText = useCallback(
+    (text: string) => {
+      if (!text) return;
+      const lines = text.split(/\r\n|\r|\n/);
+      if (lines.length > 1) {
+        setPendingPaste({ text, lineCount: lines.length });
+      } else {
+        api.sshWrite(tabId, text).catch(() => {});
+      }
+    },
+    [tabId]
+  );
+
+  useEffect(() => {
+    handlePasteTextRef.current = handlePasteText;
+  }, [handlePasteText]);
+
+  const handleToggleLog = async () => {
+    if (logFilePath) {
+      await api.sshStopLog(tabId).catch(() => {});
+      setLogFilePath(null);
+      return;
+    }
+    const safeName = session.name.replace(/[^a-zA-Z0-9._-]+/g, "_") || "terminal";
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(
+      now.getHours()
+    )}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    try {
+      const selected = await save({
+        defaultPath: `${safeName}_${stamp}.log`,
+        filters: [
+          { name: "Log files", extensions: ["log", "txt"] },
+        ],
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        await api.sshStartLog(tabId, selected);
+        setLogFilePath(selected);
+      }
+    } catch {
+      // ignore if cancelled or dialog error
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      api.sshStopLog(tabId).catch(() => {});
+    };
+  }, [tabId]);
 
   useEffect(() => {
     connStateRef.current = connState;
@@ -205,7 +262,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
           navigator.clipboard
             .readText()
             .then((text) => {
-              if (text) api.sshWrite(tabId, text).catch(() => {});
+              if (text) handlePasteTextRef.current(text);
             })
             .catch(() => {});
           return false;
@@ -213,6 +270,18 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
       }
       return true;
     });
+
+    // Intercept DOM paste events (e.g. right-click paste or browser paste) before xterm consumes them
+    const onDomPaste = (ev: ClipboardEvent) => {
+      const text = ev.clipboardData?.getData("text");
+      if (!text) return;
+      if (/[\r\n]/.test(text)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        handlePasteTextRef.current(text);
+      }
+    };
+    container.addEventListener("paste", onDomPaste, true);
 
     const selectionDisposable = term.onSelectionChange(() => {
       if (copyOnSelectRef.current && term.hasSelection()) {
@@ -259,6 +328,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
 
     return () => {
       window.clearTimeout(connectTimer);
+      container.removeEventListener("paste", onDomPaste, true);
       resizeObserver.disconnect();
       selectionDisposable.dispose();
       dataDisposable.dispose();
@@ -368,6 +438,33 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
+            title={
+              logFilePath
+                ? t("workspace.ssh_log_stop_tooltip", { path: logFilePath })
+                : t("workspace.ssh_log_start_tooltip")
+            }
+            onClick={handleToggleLog}
+            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border transition-colors cursor-pointer ${
+              logFilePath
+                ? "border-red-400 dark:border-red-700 bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-950"
+                : "border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {logFilePath ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <Square className="w-2.5 h-2.5 fill-current" />
+                {t("workspace.ssh_log_recording")}
+              </>
+            ) : (
+              <>
+                <FileText className="w-3 h-3" />
+                {t("workspace.ssh_log_start")}
+              </>
+            )}
+          </button>
+          <button
+            type="button"
             title={t("workspace.console_clear")}
             onClick={() => termRef.current?.clear()}
             className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer"
@@ -425,6 +522,54 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
           }}
           onCancel={() => setShowAuthPrompt(false)}
         />
+      )}
+
+      {pendingPaste && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-5 py-3.5 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {t("workspace.multiline_paste_title")}
+              </h3>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                {t("workspace.multiline_paste_message", {
+                  count: pendingPaste.lineCount,
+                })}
+              </p>
+              <pre className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-800 dark:text-zinc-200 whitespace-pre overflow-auto max-h-64 select-text">
+                {pendingPaste.text}
+              </pre>
+            </div>
+            <div className="px-5 py-3.5 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingPaste(null);
+                  termRef.current?.focus();
+                }}
+                className="px-4 py-1.5 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+              >
+                {t("app.cancel")}
+              </button>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  const textToPaste = pendingPaste.text;
+                  setPendingPaste(null);
+                  api.sshWrite(tabId, textToPaste).catch(() => {});
+                  termRef.current?.focus();
+                }}
+                className="px-4 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+              >
+                {t("workspace.multiline_paste_confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

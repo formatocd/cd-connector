@@ -63,8 +63,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: "CD Connector v__VERSION__"
-          releaseBody: "See the assets below to download and install CD Connector for your platform."
+          releaseName: "CD Remote v__VERSION__"
+          releaseBody: "See the assets below to download and install CD Remote for your platform."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

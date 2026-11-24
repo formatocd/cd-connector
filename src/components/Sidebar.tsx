@@ -3,14 +3,13 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   Folder as FolderIcon,
   FolderOpen,
   FolderPlus,
-  Plus,
   Pencil,
   Trash2,
   FolderTree,
-  Terminal,
   Search,
   Play,
   X,
@@ -19,12 +18,22 @@ import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
 import { ConfirmActionModal } from "./FileActionModals";
 import { IconColorPicker, resolveIconColor } from "./IconColorPicker";
-import type { Folder, Protocol, Session } from "../types";
+import { TerminalSolidIcon } from "./TerminalSolidIcon";
+import type { Folder, Protocol, Session, SessionKind } from "../types";
 
 interface SidebarProps {
-  onNewSession: (folderId: string | null) => void;
+  onNewSession: (folderId: string | null, kind: SessionKind) => void;
   onEditSession: (session: Session) => void;
+  onDuplicateSession: (session: Session) => void;
 }
+
+type DragItem = { kind: "folder" | "session"; id: string };
+type DropIndicator =
+  | { type: "root" }
+  | { type: "folder-inside"; folderId: string }
+  | { type: "folder-edge"; folderId: string; position: "before" | "after" }
+  | { type: "session-edge"; sessionId: string; position: "before" | "after" }
+  | null;
 
 type SidebarContextMenu =
   | { x: number; y: number; kind: "session"; session: Session }
@@ -47,7 +56,11 @@ const PROTOCOL_LABEL: Record<Protocol, string> = {
   ssh: "SSH",
 };
 
-export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
+export function Sidebar({
+  onNewSession,
+  onEditSession,
+  onDuplicateSession,
+}: SidebarProps) {
   const { t } = useTranslation();
   const { folders, sessions, refreshVaultData, openSessionTab } = useAppStore();
 
@@ -60,7 +73,8 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
   const [folderColorInput, setFolderColorInput] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
-  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [draggingItem, setDraggingItem] = useState<DragItem | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null);
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
   >(null);
@@ -163,46 +177,144 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
     await refreshVaultData();
   };
 
-  const handleDropOnFolder = async (e: React.DragEvent, targetFolderId: string | null) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverTarget(null);
+  const clearDragState = () => {
+    setDraggingItem(null);
+    setDropIndicator(null);
+  };
+
+  const getDraggedItem = (e: React.DragEvent): DragItem | null => {
     const kind = e.dataTransfer.getData("application/x-cd-kind");
     const id = e.dataTransfer.getData("application/x-cd-id");
-    if (!kind || !id) return;
+    if ((kind === "folder" || kind === "session") && id) {
+      return { kind, id };
+    }
+    return draggingItem;
+  };
+
+  const reorderSiblingList = (
+    siblingIds: string[],
+    draggedId: string,
+    targetId: string,
+    position: "before" | "after"
+  ): string[] => {
+    const filtered = siblingIds.filter((x) => x !== draggedId);
+    const targetIdx = filtered.indexOf(targetId);
+    if (targetIdx === -1) {
+      filtered.push(draggedId);
+      return filtered;
+    }
+    const insertIdx = position === "before" ? targetIdx : targetIdx + 1;
+    filtered.splice(insertIdx, 0, draggedId);
+    return filtered;
+  };
+
+  const handleDropIntoFolder = async (e: React.DragEvent, targetFolderId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const item = getDraggedItem(e);
+    clearDragState();
+    if (!item) return;
 
     try {
-      if (kind === "session") {
-        const session = sessions.find((s) => s.id === id);
-        if (!session || session.folder_id === targetFolderId) return;
-        await api.updateSession(session.id, {
-          folder_id: targetFolderId,
-          credential_id: session.credential_id,
-          name: session.name,
-          protocol: session.protocol,
-          host: session.host,
-          port: session.port,
-          remote_initial_path: session.remote_initial_path,
-          local_initial_path: session.local_initial_path,
-          passive_mode: session.passive_mode,
-          accept_invalid_certs: session.accept_invalid_certs,
-          sort_order: session.sort_order,
-          icon_color: session.icon_color ?? null,
-        });
+      if (item.kind === "session") {
+        const siblings = sessions
+          .filter((s) => s.folder_id === targetFolderId && s.id !== item.id)
+          .map((s) => s.id);
+        siblings.push(item.id);
+        await api.reorderTreeItems("session", targetFolderId, siblings);
         await refreshVaultData();
-      } else if (kind === "folder") {
-        const folder = folders.find((f) => f.id === id);
-        if (!folder || folder.id === targetFolderId || folder.parent_id === targetFolderId) return;
-        await api.updateFolder(folder.id, {
-          parent_id: targetFolderId,
-          name: folder.name,
-          sort_order: folder.sort_order,
-          icon_color: folder.icon_color ?? null,
-        });
+      } else if (item.kind === "folder") {
+        if (item.id === targetFolderId) return;
+        const siblings = folders
+          .filter((f) => f.parent_id === targetFolderId && f.id !== item.id)
+          .map((f) => f.id);
+        siblings.push(item.id);
+        await api.reorderTreeItems("folder", targetFolderId, siblings);
         await refreshVaultData();
       }
     } catch (err) {
       console.error("Drop failed:", err);
+    }
+  };
+
+  const handleDropOnSession = async (
+    e: React.DragEvent,
+    targetSession: Session,
+    position: "before" | "after"
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const item = getDraggedItem(e);
+    clearDragState();
+    if (!item || item.kind !== "session" || item.id === targetSession.id) return;
+
+    try {
+      const siblingIds = sessions
+        .filter((s) => s.folder_id === targetSession.folder_id)
+        .map((s) => s.id);
+      const nextOrder = reorderSiblingList(siblingIds, item.id, targetSession.id, position);
+      await api.reorderTreeItems("session", targetSession.folder_id, nextOrder);
+      await refreshVaultData();
+    } catch (err) {
+      console.error("Reorder session failed:", err);
+    }
+  };
+
+  const handleDropOnFolderRow = async (
+    e: React.DragEvent,
+    targetFolder: Folder,
+    indicator: DropIndicator
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const item = getDraggedItem(e);
+    clearDragState();
+    if (!item) return;
+
+    if (
+      item.kind === "folder" &&
+      indicator?.type === "folder-edge" &&
+      indicator.folderId === targetFolder.id
+    ) {
+      if (item.id === targetFolder.id) return;
+      try {
+        const siblingIds = folders
+          .filter((f) => f.parent_id === targetFolder.parent_id)
+          .map((f) => f.id);
+        const nextOrder = reorderSiblingList(
+          siblingIds,
+          item.id,
+          targetFolder.id,
+          indicator.position
+        );
+        await api.reorderTreeItems("folder", targetFolder.parent_id, nextOrder);
+        await refreshVaultData();
+      } catch (err) {
+        console.error("Reorder folder failed:", err);
+      }
+      return;
+    }
+
+    // Default: drop inside targetFolder
+    try {
+      if (item.kind === "session") {
+        const siblings = sessions
+          .filter((s) => s.folder_id === targetFolder.id && s.id !== item.id)
+          .map((s) => s.id);
+        siblings.push(item.id);
+        await api.reorderTreeItems("session", targetFolder.id, siblings);
+        await refreshVaultData();
+      } else if (item.kind === "folder") {
+        if (item.id === targetFolder.id) return;
+        const siblings = folders
+          .filter((f) => f.parent_id === targetFolder.id && f.id !== item.id)
+          .map((f) => f.id);
+        siblings.push(item.id);
+        await api.reorderTreeItems("folder", targetFolder.id, siblings);
+        await refreshVaultData();
+      }
+    } catch (err) {
+      console.error("Drop on folder failed:", err);
     }
   };
 
@@ -215,47 +327,88 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
       )
     : sessions;
 
-  const renderSessionItem = (session: Session, depth: number) => (
-    <div
-      key={session.id}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("application/x-cd-kind", "session");
-        e.dataTransfer.setData("application/x-cd-id", session.id);
-      }}
-      onDoubleClick={() => openSessionTab(session)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, kind: "session", session });
-      }}
-      style={{ paddingLeft: `${depth * 16 + 6}px` }}
-      className="flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default select-none transition-colors"
-    >
-      <span className="w-4 shrink-0" />
-      {session.protocol === "ssh" ? (
-        <Terminal
-          className="w-3.5 h-3.5 shrink-0"
-          style={{ color: resolveIconColor(session.icon_color, "#a855f7") }}
-        />
-      ) : (
-        <FolderTree
-          className="w-3.5 h-3.5 shrink-0"
-          style={{ color: resolveIconColor(session.icon_color, "#38bdf8") }}
-        />
-      )}
-      <span className="truncate flex-1 font-medium text-zinc-800 dark:text-zinc-200">
-        {session.name}
-      </span>
-      <span
-        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
-          PROTOCOL_BADGE[session.protocol]
-        }`}
+  const renderSessionItem = (session: Session, depth: number) => {
+    const isBefore =
+      dropIndicator?.type === "session-edge" &&
+      dropIndicator.sessionId === session.id &&
+      dropIndicator.position === "before";
+    const isAfter =
+      dropIndicator?.type === "session-edge" &&
+      dropIndicator.sessionId === session.id &&
+      dropIndicator.position === "after";
+
+    return (
+      <div
+        key={session.id}
+        draggable={!normalizedSearch}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("application/x-cd-kind", "session");
+          e.dataTransfer.setData("application/x-cd-id", session.id);
+          e.dataTransfer.effectAllowed = "move";
+          setDraggingItem({ kind: "session", id: session.id });
+        }}
+        onDragEnd={clearDragState}
+        onDragOver={(e) => {
+          if (normalizedSearch || !draggingItem || draggingItem.kind !== "session") return;
+          if (draggingItem.id === session.id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pos: "before" | "after" =
+            e.clientY - rect.top < rect.height / 2 ? "before" : "after";
+          setDropIndicator({ type: "session-edge", sessionId: session.id, position: pos });
+        }}
+        onDragLeave={() => {
+          if (
+            dropIndicator?.type === "session-edge" &&
+            dropIndicator.sessionId === session.id
+          ) {
+            setDropIndicator(null);
+          }
+        }}
+        onDrop={(e) => {
+          if (normalizedSearch) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pos: "before" | "after" =
+            e.clientY - rect.top < rect.height / 2 ? "before" : "after";
+          handleDropOnSession(e, session, pos);
+        }}
+        onDoubleClick={() => openSessionTab(session)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setContextMenu({ x: e.clientX, y: e.clientY, kind: "session", session });
+        }}
+        style={{ paddingLeft: `${depth * 16 + 6}px` }}
+        className={`relative flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default select-none transition-colors ${
+          isBefore ? "border-t-2 border-indigo-500" : ""
+        } ${isAfter ? "border-b-2 border-indigo-500" : ""}`}
       >
-        {PROTOCOL_LABEL[session.protocol]}
-      </span>
-    </div>
-  );
+        <span className="w-4 shrink-0" />
+        {session.protocol === "ssh" ? (
+          <TerminalSolidIcon
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: resolveIconColor(session.icon_color, "#a855f7") }}
+          />
+        ) : (
+          <FolderTree
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: resolveIconColor(session.icon_color, "#38bdf8") }}
+          />
+        )}
+        <span className="truncate flex-1 font-medium text-zinc-800 dark:text-zinc-200">
+          {session.name}
+        </span>
+        <span
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
+            PROTOCOL_BADGE[session.protocol]
+          }`}
+        >
+          {PROTOCOL_LABEL[session.protocol]}
+        </span>
+      </div>
+    );
+  };
 
   const renderFolderTree = (parentId: string | null, depth: number) => {
     const childFolders = folders.filter((f) => f.parent_id === parentId);
@@ -265,7 +418,17 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
       <>
         {childFolders.map((folder) => {
           const isOpen = expanded[folder.id] ?? true;
-          const isDragOver = dragOverTarget === folder.id;
+          const isInside =
+            dropIndicator?.type === "folder-inside" &&
+            dropIndicator.folderId === folder.id;
+          const isBefore =
+            dropIndicator?.type === "folder-edge" &&
+            dropIndicator.folderId === folder.id &&
+            dropIndicator.position === "before";
+          const isAfter =
+            dropIndicator?.type === "folder-edge" &&
+            dropIndicator.folderId === folder.id &&
+            dropIndicator.position === "after";
           const hasChildren =
             folders.some((f) => f.parent_id === folder.id) ||
             filteredSessions.some((s) => s.folder_id === folder.id);
@@ -277,14 +440,49 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 onDragStart={(e) => {
                   e.dataTransfer.setData("application/x-cd-kind", "folder");
                   e.dataTransfer.setData("application/x-cd-id", folder.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDraggingItem({ kind: "folder", id: folder.id });
                 }}
+                onDragEnd={clearDragState}
                 onDragOver={(e) => {
+                  if (!draggingItem) return;
+                  if (draggingItem.kind === "folder" && draggingItem.id === folder.id) {
+                    return;
+                  }
                   e.preventDefault();
                   e.stopPropagation();
-                  setDragOverTarget(folder.id);
+                  if (draggingItem.kind === "folder") {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const relY = (e.clientY - rect.top) / rect.height;
+                    if (relY < 0.25) {
+                      setDropIndicator({
+                        type: "folder-edge",
+                        folderId: folder.id,
+                        position: "before",
+                      });
+                    } else if (relY > 0.75) {
+                      setDropIndicator({
+                        type: "folder-edge",
+                        folderId: folder.id,
+                        position: "after",
+                      });
+                    } else {
+                      setDropIndicator({ type: "folder-inside", folderId: folder.id });
+                    }
+                  } else {
+                    setDropIndicator({ type: "folder-inside", folderId: folder.id });
+                  }
                 }}
-                onDragLeave={() => setDragOverTarget(null)}
-                onDrop={(e) => handleDropOnFolder(e, folder.id)}
+                onDragLeave={() => {
+                  if (
+                    (dropIndicator?.type === "folder-inside" ||
+                      dropIndicator?.type === "folder-edge") &&
+                    dropIndicator.folderId === folder.id
+                  ) {
+                    setDropIndicator(null);
+                  }
+                }}
+                onDrop={(e) => handleDropOnFolderRow(e, folder, dropIndicator)}
                 onClick={() => hasChildren && toggleFolder(folder.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -293,9 +491,11 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 }}
                 style={{ paddingLeft: `${depth * 16 + 6}px` }}
                 className={`flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md cursor-default select-none transition-colors ${
-                  isDragOver
+                  isInside
                     ? "bg-indigo-100 dark:bg-indigo-950/60 ring-1 ring-indigo-500"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80"
+                } ${isBefore ? "border-t-2 border-indigo-500" : ""} ${
+                  isAfter ? "border-b-2 border-indigo-500" : ""
                 }`}
               >
                 <span className="w-4 h-4 flex items-center justify-center shrink-0">
@@ -374,11 +574,19 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
           </button>
           <button
             type="button"
-            title={t("sidebar.new_session")}
-            onClick={() => onNewSession(null)}
-            className="p-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+            title={t("sidebar.new_transfer")}
+            onClick={() => onNewSession(null, "transfer")}
+            className="p-1.5 rounded-md bg-sky-600 hover:bg-sky-700 text-white cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <FolderTree className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            title={t("sidebar.new_ssh")}
+            onClick={() => onNewSession(null, "ssh")}
+            className="p-1.5 rounded-md bg-purple-600 hover:bg-purple-700 text-white cursor-pointer"
+          >
+            <TerminalSolidIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -448,14 +656,21 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
 
       <div
         className={`flex-1 overflow-y-auto p-1.5 space-y-0.5 ${
-          dragOverTarget === "__root__" ? "bg-indigo-50/40 dark:bg-indigo-950/20" : ""
+          dropIndicator?.type === "root"
+            ? "bg-indigo-50/50 dark:bg-indigo-950/25 ring-1 ring-inset ring-indigo-400/60"
+            : ""
         }`}
         onDragOver={(e) => {
+          if (!draggingItem) return;
           e.preventDefault();
-          setDragOverTarget("__root__");
+          setDropIndicator({ type: "root" });
         }}
-        onDragLeave={() => setDragOverTarget(null)}
-        onDrop={(e) => handleDropOnFolder(e, null)}
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target && dropIndicator?.type === "root") {
+            setDropIndicator(null);
+          }
+        }}
+        onDrop={(e) => handleDropIntoFolder(e, null)}
         onContextMenu={(e) => {
           e.preventDefault();
           setContextMenu({ x: e.clientX, y: e.clientY, kind: "empty" });
@@ -508,6 +723,17 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 <Pencil className="w-3.5 h-3.5 text-zinc-500" />
                 {t("app.edit")}
               </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onDuplicateSession(contextMenu.session);
+                  setContextMenu(null);
+                }}
+              >
+                <Copy className="w-3.5 h-3.5 text-zinc-500" />
+                {t("sidebar.duplicate")}
+              </button>
               <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
               <div className="px-3 py-1.5 space-y-1.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
@@ -541,12 +767,23 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 type="button"
                 className={menuItemClass}
                 onClick={() => {
-                  onNewSession(contextMenu.folder.id);
+                  onNewSession(contextMenu.folder.id, "ssh");
                   setContextMenu(null);
                 }}
               >
-                <Plus className="w-3.5 h-3.5 text-indigo-500" />
-                {t("sidebar.new_session")}
+                <TerminalSolidIcon className="w-3.5 h-3.5 text-purple-500" />
+                {t("sidebar.new_ssh")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onNewSession(contextMenu.folder.id, "transfer");
+                  setContextMenu(null);
+                }}
+              >
+                <FolderTree className="w-3.5 h-3.5 text-sky-500" />
+                {t("sidebar.new_transfer")}
               </button>
               <button
                 type="button"
@@ -606,12 +843,23 @@ export function Sidebar({ onNewSession, onEditSession }: SidebarProps) {
                 type="button"
                 className={menuItemClass}
                 onClick={() => {
-                  onNewSession(null);
+                  onNewSession(null, "ssh");
                   setContextMenu(null);
                 }}
               >
-                <Plus className="w-3.5 h-3.5 text-indigo-500" />
-                {t("sidebar.new_session")}
+                <TerminalSolidIcon className="w-3.5 h-3.5 text-purple-500" />
+                {t("sidebar.new_ssh")}
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  onNewSession(null, "transfer");
+                  setContextMenu(null);
+                }}
+              >
+                <FolderTree className="w-3.5 h-3.5 text-sky-500" />
+                {t("sidebar.new_transfer")}
               </button>
               <button
                 type="button"

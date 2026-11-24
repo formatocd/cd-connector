@@ -1,14 +1,14 @@
 {
-  "name": "cd-connector",
+  "name": "cd-remote",
   "private": true,
   "version": "1.0.0",
-  "description": "Cross-platform FTP, FTPS, SFTP & SSH file transfer client",
+  "description": "Cross-platform FTP, FTPS, SFTP & SSH remote client",
   "author": "Carlos Durán <formatocd>",
   "license": "MIT",
-  "homepage": "https://github.com/formatocd/cd-connector",
+  "homepage": "https://github.com/formatocd/cd-remote",
   "repository": {
     "type": "git",
-    "url": "https://github.com/formatocd/cd-connector.git"
+    "url": "https://github.com/formatocd/cd-remote.git"
   },
   "type": "module",
   "scripts": {

@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Zap, Search, FolderTree, Terminal, Clock, X } from "lucide-react";
+import { Search, FolderTree, Clock, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { AppLogo } from "./AppLogo";
 import { resolveIconColor } from "./IconColorPicker";
-import type { Session } from "../types";
+import { TerminalSolidIcon } from "./TerminalSolidIcon";
+import type { Session, SessionKind } from "../types";
 
 interface HomePageProps {
-  onQuickConnect: () => void;
+  onQuickConnect: (kind: SessionKind) => void;
 }
 
 export function HomePage({ onQuickConnect }: HomePageProps) {
@@ -51,15 +52,25 @@ export function HomePage({ onQuickConnect }: HomePageProps) {
           </p>
         </div>
 
-        {/* 2. Quick Connect Button */}
-        <button
-          type="button"
-          onClick={onQuickConnect}
-          className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors cursor-pointer"
-        >
-          <Zap className="w-4 h-4" />
-          {t("toolbar.quick_connect")}
-        </button>
+        {/* 2. Quick Connect Buttons (SSH vs Transfer) */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onQuickConnect("ssh")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition-colors cursor-pointer"
+          >
+            <TerminalSolidIcon className="w-4 h-4" />
+            {t("toolbar.quick_ssh")}
+          </button>
+          <button
+            type="button"
+            onClick={() => onQuickConnect("transfer")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors cursor-pointer"
+          >
+            <FolderTree className="w-4 h-4" />
+            {t("toolbar.quick_transfer")}
+          </button>
+        </div>
 
         {/* 3. Search Box (by session name or host, excluding folders) */}
         <div className="w-full max-w-lg relative">
@@ -113,7 +124,7 @@ export function HomePage({ onQuickConnect }: HomePageProps) {
                     className="w-full min-w-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/70 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/40 hover:border-indigo-400 dark:hover:border-indigo-700 text-left transition-colors cursor-pointer"
                   >
                     {isSsh ? (
-                      <Terminal
+                      <TerminalSolidIcon
                         className="w-4 h-4 shrink-0"
                         style={{ color }}
                       />

@@ -1,5 +1,8 @@
 use chrono::Utc;
+use std::sync::Arc;
 use tauri::{AppHandle, State};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 use crate::crypto;
@@ -91,6 +94,7 @@ pub async fn ssh_connect(
         request.cols.unwrap_or(100),
         request.rows.unwrap_or(30),
         request.initial_dir.clone(),
+        state.ssh_log_files.clone(),
     )
     .await?;
 
@@ -162,6 +166,35 @@ pub async fn ssh_resize(
 pub async fn ssh_disconnect(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
     if let Some(handle) = state.ssh_terminals.write().await.remove(&tab_id) {
         let _ = handle.tx.send(SshCommand::Close { silent: false });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_start_log(
+    state: State<'_, AppState>,
+    tab_id: String,
+    file_path: String,
+) -> AppResult<()> {
+    let file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&file_path)
+        .await?;
+    state
+        .ssh_log_files
+        .write()
+        .await
+        .insert(tab_id, Arc::new(AsyncMutex::new(file)));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_stop_log(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
+    if let Some(file_arc) = state.ssh_log_files.write().await.remove(&tab_id) {
+        let mut f = file_arc.lock().await;
+        let _ = f.flush().await;
     }
     Ok(())
 }

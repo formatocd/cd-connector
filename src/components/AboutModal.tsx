@@ -70,12 +70,12 @@ export function AboutModal({ onClose }: AboutModalProps) {
             <div className="flex justify-between items-center gap-3 pt-1 border-t border-zinc-200 dark:border-zinc-800">
               <span className="text-zinc-500">{t("about.repository")}</span>
               <a
-                href="https://github.com/formatocd/cd-connector"
+                href="https://github.com/formatocd/cd-remote"
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-mono"
               >
-                formatocd/cd-connector
+                formatocd/cd-remote
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>

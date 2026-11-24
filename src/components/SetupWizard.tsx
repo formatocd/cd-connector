@@ -155,7 +155,7 @@ export function SetupWizard() {
               {t("setup.title")}
             </h1>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              formatocd • CD Connector
+              formatocd • CD Remote
             </p>
           </div>
         </div>
