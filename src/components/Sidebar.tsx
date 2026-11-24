@@ -27,7 +27,7 @@ interface SidebarProps {
   onDuplicateSession: (session: Session) => void;
 }
 
-type DragItem = { kind: "folder" | "session"; id: string };
+type DragItem = { kind: "folder" | "session"; id: string; label: string };
 type DropIndicator =
   | { type: "root" }
   | { type: "folder-inside"; folderId: string }
@@ -74,7 +74,9 @@ export function Sidebar({
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
   const [draggingItem, setDraggingItem] = useState<DragItem | null>(null);
+  const [dragGhostPos, setDragGhostPos] = useState<{ x: number; y: number } | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null);
+  const suppressClickRef = useRef(false);
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
   >(null);
@@ -177,20 +179,6 @@ export function Sidebar({
     await refreshVaultData();
   };
 
-  const clearDragState = () => {
-    setDraggingItem(null);
-    setDropIndicator(null);
-  };
-
-  const getDraggedItem = (e: React.DragEvent): DragItem | null => {
-    const kind = e.dataTransfer.getData("application/x-cd-kind");
-    const id = e.dataTransfer.getData("application/x-cd-id");
-    if ((kind === "folder" || kind === "session") && id) {
-      return { kind, id };
-    }
-    return draggingItem;
-  };
-
   const reorderSiblingList = (
     siblingIds: string[],
     draggedId: string,
@@ -208,76 +196,48 @@ export function Sidebar({
     return filtered;
   };
 
-  const handleDropIntoFolder = async (e: React.DragEvent, targetFolderId: string | null) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const item = getDraggedItem(e);
-    clearDragState();
-    if (!item) return;
-
+  const commitTreeDrop = async (item: DragItem, indicator: DropIndicator) => {
+    if (!indicator) return;
     try {
-      if (item.kind === "session") {
-        const siblings = sessions
-          .filter((s) => s.folder_id === targetFolderId && s.id !== item.id)
-          .map((s) => s.id);
-        siblings.push(item.id);
-        await api.reorderTreeItems("session", targetFolderId, siblings);
-        await refreshVaultData();
-      } else if (item.kind === "folder") {
-        if (item.id === targetFolderId) return;
-        const siblings = folders
-          .filter((f) => f.parent_id === targetFolderId && f.id !== item.id)
-          .map((f) => f.id);
-        siblings.push(item.id);
-        await api.reorderTreeItems("folder", targetFolderId, siblings);
-        await refreshVaultData();
+      if (indicator.type === "root") {
+        if (item.kind === "session") {
+          const siblings = sessions
+            .filter((s) => s.folder_id === null && s.id !== item.id)
+            .map((s) => s.id);
+          siblings.push(item.id);
+          await api.reorderTreeItems("session", null, siblings);
+          await refreshVaultData();
+        } else {
+          const siblings = folders
+            .filter((f) => f.parent_id === null && f.id !== item.id)
+            .map((f) => f.id);
+          siblings.push(item.id);
+          await api.reorderTreeItems("folder", null, siblings);
+          await refreshVaultData();
+        }
+        return;
       }
-    } catch (err) {
-      console.error("Drop failed:", err);
-    }
-  };
 
-  const handleDropOnSession = async (
-    e: React.DragEvent,
-    targetSession: Session,
-    position: "before" | "after"
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const item = getDraggedItem(e);
-    clearDragState();
-    if (!item || item.kind !== "session" || item.id === targetSession.id) return;
+      if (indicator.type === "session-edge" && item.kind === "session") {
+        const targetSession = sessions.find((s) => s.id === indicator.sessionId);
+        if (!targetSession || item.id === targetSession.id) return;
+        const siblingIds = sessions
+          .filter((s) => s.folder_id === targetSession.folder_id)
+          .map((s) => s.id);
+        const nextOrder = reorderSiblingList(
+          siblingIds,
+          item.id,
+          targetSession.id,
+          indicator.position
+        );
+        await api.reorderTreeItems("session", targetSession.folder_id, nextOrder);
+        await refreshVaultData();
+        return;
+      }
 
-    try {
-      const siblingIds = sessions
-        .filter((s) => s.folder_id === targetSession.folder_id)
-        .map((s) => s.id);
-      const nextOrder = reorderSiblingList(siblingIds, item.id, targetSession.id, position);
-      await api.reorderTreeItems("session", targetSession.folder_id, nextOrder);
-      await refreshVaultData();
-    } catch (err) {
-      console.error("Reorder session failed:", err);
-    }
-  };
-
-  const handleDropOnFolderRow = async (
-    e: React.DragEvent,
-    targetFolder: Folder,
-    indicator: DropIndicator
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const item = getDraggedItem(e);
-    clearDragState();
-    if (!item) return;
-
-    if (
-      item.kind === "folder" &&
-      indicator?.type === "folder-edge" &&
-      indicator.folderId === targetFolder.id
-    ) {
-      if (item.id === targetFolder.id) return;
-      try {
+      if (indicator.type === "folder-edge" && item.kind === "folder") {
+        const targetFolder = folders.find((f) => f.id === indicator.folderId);
+        if (!targetFolder || item.id === targetFolder.id) return;
         const siblingIds = folders
           .filter((f) => f.parent_id === targetFolder.parent_id)
           .map((f) => f.id);
@@ -289,33 +249,112 @@ export function Sidebar({
         );
         await api.reorderTreeItems("folder", targetFolder.parent_id, nextOrder);
         await refreshVaultData();
-      } catch (err) {
-        console.error("Reorder folder failed:", err);
+        return;
       }
-      return;
-    }
 
-    // Default: drop inside targetFolder
-    try {
-      if (item.kind === "session") {
-        const siblings = sessions
-          .filter((s) => s.folder_id === targetFolder.id && s.id !== item.id)
-          .map((s) => s.id);
-        siblings.push(item.id);
-        await api.reorderTreeItems("session", targetFolder.id, siblings);
-        await refreshVaultData();
-      } else if (item.kind === "folder") {
-        if (item.id === targetFolder.id) return;
-        const siblings = folders
-          .filter((f) => f.parent_id === targetFolder.id && f.id !== item.id)
-          .map((f) => f.id);
-        siblings.push(item.id);
-        await api.reorderTreeItems("folder", targetFolder.id, siblings);
-        await refreshVaultData();
+      if (indicator.type === "folder-inside") {
+        const targetFolderId = indicator.folderId;
+        if (item.kind === "session") {
+          const siblings = sessions
+            .filter((s) => s.folder_id === targetFolderId && s.id !== item.id)
+            .map((s) => s.id);
+          siblings.push(item.id);
+          await api.reorderTreeItems("session", targetFolderId, siblings);
+          await refreshVaultData();
+        } else {
+          if (item.id === targetFolderId) return;
+          const siblings = folders
+            .filter((f) => f.parent_id === targetFolderId && f.id !== item.id)
+            .map((f) => f.id);
+          siblings.push(item.id);
+          await api.reorderTreeItems("folder", targetFolderId, siblings);
+          await refreshVaultData();
+        }
       }
     } catch (err) {
-      console.error("Drop on folder failed:", err);
+      console.error("Tree drop failed:", err);
     }
+  };
+
+  const startPointerDrag = (e: React.PointerEvent, item: DragItem) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement | null)?.closest("input, button")) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let active = false;
+    let latestIndicator: DropIndicator = null;
+
+    const computeIndicator = (clientX: number, clientY: number): DropIndicator => {
+      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      if (!el) return null;
+
+      const row = el.closest("[data-tree-kind]") as HTMLElement | null;
+      if (row) {
+        const targetKind = row.dataset.treeKind;
+        const targetId = row.dataset.treeId;
+        if (targetKind === "session" && targetId) {
+          if (item.kind !== "session" || item.id === targetId) return null;
+          const rect = row.getBoundingClientRect();
+          const position: "before" | "after" =
+            clientY - rect.top < rect.height / 2 ? "before" : "after";
+          return { type: "session-edge", sessionId: targetId, position };
+        }
+        if (targetKind === "folder" && targetId) {
+          if (item.kind === "folder" && item.id === targetId) return null;
+          if (item.kind === "folder") {
+            const rect = row.getBoundingClientRect();
+            const relY = (clientY - rect.top) / rect.height;
+            if (relY < 0.25) {
+              return { type: "folder-edge", folderId: targetId, position: "before" };
+            }
+            if (relY > 0.75) {
+              return { type: "folder-edge", folderId: targetId, position: "after" };
+            }
+          }
+          return { type: "folder-inside", folderId: targetId };
+        }
+      }
+
+      if (el.closest("[data-tree-root='true']")) {
+        return { type: "root" };
+      }
+      return null;
+    };
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) < 5) {
+          return;
+        }
+        active = true;
+        setDraggingItem(item);
+      }
+      setDragGhostPos({ x: moveEv.clientX, y: moveEv.clientY });
+      latestIndicator = computeIndicator(moveEv.clientX, moveEv.clientY);
+      setDropIndicator(latestIndicator);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (active) {
+        suppressClickRef.current = true;
+        window.setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 50);
+        const indicatorToApply = latestIndicator;
+        setDraggingItem(null);
+        setDragGhostPos(null);
+        setDropIndicator(null);
+        void commitTreeDrop(item, indicatorToApply);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const normalizedSearch = search.trim().toLowerCase();
@@ -337,41 +376,16 @@ export function Sidebar({
       dropIndicator.sessionId === session.id &&
       dropIndicator.position === "after";
 
+    const isDragging = draggingItem?.kind === "session" && draggingItem.id === session.id;
+
     return (
       <div
         key={session.id}
-        draggable={!normalizedSearch}
-        onDragStart={(e) => {
-          e.dataTransfer.setData("application/x-cd-kind", "session");
-          e.dataTransfer.setData("application/x-cd-id", session.id);
-          e.dataTransfer.effectAllowed = "move";
-          setDraggingItem({ kind: "session", id: session.id });
-        }}
-        onDragEnd={clearDragState}
-        onDragOver={(e) => {
-          if (normalizedSearch || !draggingItem || draggingItem.kind !== "session") return;
-          if (draggingItem.id === session.id) return;
-          e.preventDefault();
-          e.stopPropagation();
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pos: "before" | "after" =
-            e.clientY - rect.top < rect.height / 2 ? "before" : "after";
-          setDropIndicator({ type: "session-edge", sessionId: session.id, position: pos });
-        }}
-        onDragLeave={() => {
-          if (
-            dropIndicator?.type === "session-edge" &&
-            dropIndicator.sessionId === session.id
-          ) {
-            setDropIndicator(null);
-          }
-        }}
-        onDrop={(e) => {
+        data-tree-kind="session"
+        data-tree-id={session.id}
+        onPointerDown={(e) => {
           if (normalizedSearch) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pos: "before" | "after" =
-            e.clientY - rect.top < rect.height / 2 ? "before" : "after";
-          handleDropOnSession(e, session, pos);
+          startPointerDrag(e, { kind: "session", id: session.id, label: session.name });
         }}
         onDoubleClick={() => openSessionTab(session)}
         onContextMenu={(e) => {
@@ -381,8 +395,10 @@ export function Sidebar({
         }}
         style={{ paddingLeft: `${depth * 16 + 6}px` }}
         className={`relative flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80 cursor-default select-none transition-colors ${
-          isBefore ? "border-t-2 border-indigo-500" : ""
-        } ${isAfter ? "border-b-2 border-indigo-500" : ""}`}
+          isDragging ? "opacity-40" : ""
+        } ${isBefore ? "border-t-2 border-indigo-500" : ""} ${
+          isAfter ? "border-b-2 border-indigo-500" : ""
+        }`}
       >
         <span className="w-4 shrink-0" />
         {session.protocol === "ssh" ? (
@@ -433,57 +449,21 @@ export function Sidebar({
             folders.some((f) => f.parent_id === folder.id) ||
             filteredSessions.some((s) => s.folder_id === folder.id);
 
+          const isDragging = draggingItem?.kind === "folder" && draggingItem.id === folder.id;
+
           return (
             <div key={folder.id}>
               <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("application/x-cd-kind", "folder");
-                  e.dataTransfer.setData("application/x-cd-id", folder.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  setDraggingItem({ kind: "folder", id: folder.id });
+                data-tree-kind="folder"
+                data-tree-id={folder.id}
+                onPointerDown={(e) => {
+                  if (editingFolderId === folder.id) return;
+                  startPointerDrag(e, { kind: "folder", id: folder.id, label: folder.name });
                 }}
-                onDragEnd={clearDragState}
-                onDragOver={(e) => {
-                  if (!draggingItem) return;
-                  if (draggingItem.kind === "folder" && draggingItem.id === folder.id) {
-                    return;
-                  }
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (draggingItem.kind === "folder") {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const relY = (e.clientY - rect.top) / rect.height;
-                    if (relY < 0.25) {
-                      setDropIndicator({
-                        type: "folder-edge",
-                        folderId: folder.id,
-                        position: "before",
-                      });
-                    } else if (relY > 0.75) {
-                      setDropIndicator({
-                        type: "folder-edge",
-                        folderId: folder.id,
-                        position: "after",
-                      });
-                    } else {
-                      setDropIndicator({ type: "folder-inside", folderId: folder.id });
-                    }
-                  } else {
-                    setDropIndicator({ type: "folder-inside", folderId: folder.id });
-                  }
+                onClick={() => {
+                  if (suppressClickRef.current) return;
+                  if (hasChildren) toggleFolder(folder.id);
                 }}
-                onDragLeave={() => {
-                  if (
-                    (dropIndicator?.type === "folder-inside" ||
-                      dropIndicator?.type === "folder-edge") &&
-                    dropIndicator.folderId === folder.id
-                  ) {
-                    setDropIndicator(null);
-                  }
-                }}
-                onDrop={(e) => handleDropOnFolderRow(e, folder, dropIndicator)}
-                onClick={() => hasChildren && toggleFolder(folder.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -491,6 +471,8 @@ export function Sidebar({
                 }}
                 style={{ paddingLeft: `${depth * 16 + 6}px` }}
                 className={`flex items-center gap-1.5 pr-2 py-1 text-xs rounded-md cursor-default select-none transition-colors ${
+                  isDragging ? "opacity-40" : ""
+                } ${
                   isInside
                     ? "bg-indigo-100 dark:bg-indigo-950/60 ring-1 ring-indigo-500"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/80"
@@ -655,22 +637,12 @@ export function Sidebar({
       )}
 
       <div
+        data-tree-root="true"
         className={`flex-1 overflow-y-auto p-1.5 space-y-0.5 ${
           dropIndicator?.type === "root"
             ? "bg-indigo-50/50 dark:bg-indigo-950/25 ring-1 ring-inset ring-indigo-400/60"
             : ""
         }`}
-        onDragOver={(e) => {
-          if (!draggingItem) return;
-          e.preventDefault();
-          setDropIndicator({ type: "root" });
-        }}
-        onDragLeave={(e) => {
-          if (e.currentTarget === e.target && dropIndicator?.type === "root") {
-            setDropIndicator(null);
-          }
-        }}
-        onDrop={(e) => handleDropIntoFolder(e, null)}
         onContextMenu={(e) => {
           e.preventDefault();
           setContextMenu({ x: e.clientX, y: e.clientY, kind: "empty" });
@@ -686,6 +658,19 @@ export function Sidebar({
           renderFolderTree(null, 0)
         )}
       </div>
+
+      {/* Floating drag ghost */}
+      {draggingItem && dragGhostPos && (
+        <div
+          style={{
+            left: dragGhostPos.x + 12,
+            top: dragGhostPos.y + 12,
+          }}
+          className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium shadow-xl flex items-center gap-1.5 max-w-48 truncate"
+        >
+          <span className="truncate">{draggingItem.label}</span>
+        </div>
+      )}
 
       {/* Right-Click Context Menu */}
       {contextMenu && (

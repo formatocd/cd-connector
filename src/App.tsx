@@ -78,12 +78,71 @@ export function App() {
     session?: Session | null;
   } | null>(null);
 
-  // Tab drag-to-reorder state
+  // Tab drag-to-reorder state (pointer-event based for WebView2 compatibility)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabDragGhost, setTabDragGhost] = useState<{ label: string; x: number; y: number } | null>(
+    null
+  );
   const [tabDropTarget, setTabDropTarget] = useState<{
     tabId: string;
     position: "before" | "after";
   } | null>(null);
+  const suppressTabClickRef = useRef(false);
+
+  const startTabPointerDrag = (e: React.PointerEvent, tabId: string, label: string) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement | null)?.closest("button")) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let active = false;
+    let latestTarget: { tabId: string; position: "before" | "after" } | null = null;
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) < 5) {
+          return;
+        }
+        active = true;
+        setDraggingTabId(tabId);
+      }
+      setTabDragGhost({ label, x: moveEv.clientX, y: moveEv.clientY });
+      const el = document.elementFromPoint(moveEv.clientX, moveEv.clientY) as HTMLElement | null;
+      const tabEl = el?.closest("[data-tab-id]") as HTMLElement | null;
+      const targetId = tabEl?.dataset.tabId;
+      if (tabEl && targetId && targetId !== tabId) {
+        const rect = tabEl.getBoundingClientRect();
+        const pos: "before" | "after" =
+          moveEv.clientX - rect.left < rect.width / 2 ? "before" : "after";
+        latestTarget = { tabId: targetId, position: pos };
+      } else {
+        latestTarget = null;
+      }
+      setTabDropTarget(latestTarget);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (active) {
+        suppressTabClickRef.current = true;
+        window.setTimeout(() => {
+          suppressTabClickRef.current = false;
+        }, 50);
+        if (latestTarget && latestTarget.tabId !== tabId) {
+          reorderTabs(tabId, latestTarget.tabId, latestTarget.position);
+        }
+        setDraggingTabId(null);
+        setTabDragGhost(null);
+        setTabDropTarget(null);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
 
   // Split view ratio state (percentage for Pane 1, 20..80)
   const [splitRatio, setSplitRatio] = useState(50);
@@ -386,44 +445,17 @@ export function App() {
                   return (
                     <div
                       key={tab.tabId}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("application/x-cd-tab", tab.tabId);
-                        e.dataTransfer.effectAllowed = "move";
-                        setDraggingTabId(tab.tabId);
+                      data-tab-id={tab.tabId}
+                      onPointerDown={(e) =>
+                        startTabPointerDrag(e, tab.tabId, tab.session.name)
+                      }
+                      onClick={() => {
+                        if (suppressTabClickRef.current) return;
+                        setActiveTab(tab.tabId);
                       }}
-                      onDragEnd={() => {
-                        setDraggingTabId(null);
-                        setTabDropTarget(null);
-                      }}
-                      onDragOver={(e) => {
-                        if (!draggingTabId || draggingTabId === tab.tabId) return;
-                        e.preventDefault();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const pos: "before" | "after" =
-                          e.clientX - rect.left < rect.width / 2 ? "before" : "after";
-                        setTabDropTarget({ tabId: tab.tabId, position: pos });
-                      }}
-                      onDragLeave={() => {
-                        if (tabDropTarget?.tabId === tab.tabId) {
-                          setTabDropTarget(null);
-                        }
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const sourceId =
-                          e.dataTransfer.getData("application/x-cd-tab") || draggingTabId;
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const pos: "before" | "after" =
-                          e.clientX - rect.left < rect.width / 2 ? "before" : "after";
-                        if (sourceId && sourceId !== tab.tabId) {
-                          reorderTabs(sourceId, tab.tabId, pos);
-                        }
-                        setDraggingTabId(null);
-                        setTabDropTarget(null);
-                      }}
-                      onClick={() => setActiveTab(tab.tabId)}
                       className={`group flex items-center gap-1.5 px-3 py-1 rounded-t-md text-xs cursor-pointer transition-colors shrink-0 select-none ${
+                        draggingTabId === tab.tabId ? "opacity-40" : ""
+                      } ${
                         isVisible
                           ? "bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-medium border-t border-x border-zinc-200 dark:border-zinc-800"
                           : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
@@ -641,6 +673,18 @@ export function App() {
           )}
         </main>
       </div>
+
+      {tabDragGhost && (
+        <div
+          style={{
+            left: tabDragGhost.x + 12,
+            top: tabDragGhost.y + 12,
+          }}
+          className="fixed z-50 pointer-events-none px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium shadow-xl max-w-44 truncate"
+        >
+          {tabDragGhost.label}
+        </div>
+      )}
 
       {/* Modals */}
       {showCredentials && (
