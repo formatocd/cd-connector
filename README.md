@@ -1,13 +1,19 @@
-# CD Connector
+# CD Remote
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-indigo.svg)](LICENSE)
 [![Built with Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 
-**CD Connector** is a modern, lightweight, open-source cross-platform file transfer and SSH terminal client for **Windows**, **macOS**, and **Linux**, developed by [formatocd](https://github.com/formatocd).
+**CD Remote** is a modern, lightweight, open-source cross-platform file transfer and SSH terminal client for **Windows**, **macOS**, and **Linux**, developed by [formatocd](https://github.com/formatocd).
 
-Built with **Rust**, **Tauri v2**, **React**, **TypeScript**, and **TailwindCSS**, CD Connector combines native performance and a small memory footprint with a clean, modular interface and strong local encryption.
+Built with **Rust**, **Tauri v2**, **React**, **TypeScript**, and **TailwindCSS**, CD Remote combines native performance and a small memory footprint with a clean, modular interface and strong local encryption.
+
+---
+
+## Download
+
+Pre-built installers for **Windows**, **macOS**, and **Linux** are available on the [GitHub Releases](https://github.com/formatocd/cd-remote/releases) page.
 
 ---
 
@@ -30,7 +36,7 @@ Built with **Rust**, **Tauri v2**, **React**, **TypeScript**, and **TailwindCSS*
   - Collapsible hierarchical session tree with nested folders, Drag & Drop organization, and customizable icon colors.
   - Multi-tab simultaneous sessions with resizable split panels (`react-resizable-panels`) and independent toggleable Local Explorer, Directory Tree, Console, and Transfer Queue panels.
   - Virtualized file tables (`@tanstack/react-virtual`) capable of smoothly rendering 10,000+ entries, Material-style extension icons, Windows Explorer-style multi-selection, right-click context menus, editable breadcrumb bars, and interactive `chmod` modal.
-  - Light, Dark, and System themes, plus multi-language UI (**English** and **Spanish**).
+  - Light, Dark, and System themes, plus multi-language UI (**English**, **Spanish**, **Italian**, **French**, and **German**).
 - **Asynchronous Transfer Queue & Drag & Drop**
   - Recursive directory uploads and downloads with real-time progress, speed, and ETA.
   - Byte-level pause & resume (SFTP seek and FTP `REST` with automatic fallback), configurable concurrency, and global upload/download bandwidth limits.

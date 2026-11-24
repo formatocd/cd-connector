@@ -1,6 +1,6 @@
-# Contributing to CD Connector
+# Contributing to CD Remote
 
-Thank you for your interest in contributing to **CD Connector**!
+Thank you for your interest in contributing to **CD Remote**!
 
 ## Workflow
 
@@ -21,4 +21,4 @@ Thank you for your interest in contributing to **CD Connector**!
 
 - **License compatibility:** All third-party crates and npm packages must be compatible with the **MIT License** (e.g., MIT, Apache-2.0, BSD, ISC).
 - **Security first:** Never log or expose plaintext passwords, private keys, or passphrases. Keep all secrets encrypted at rest with AES-256-GCM and zeroized in memory.
-- **Internationalization:** Add any new user-facing strings to both `src/i18n/locales/en.json` and `src/i18n/locales/es.json`.
+- **Internationalization:** Add any new user-facing strings to all locale files in `src/i18n/locales/` (`en.json`, `es.json`, `it.json`, `fr.json`, `de.json`).
