@@ -28,6 +28,7 @@ interface SessionModalProps {
   sessionKind: SessionKind;
   initialFolderId?: string | null;
   session?: Session | null;
+  initialAuth?: { username?: string; password?: string } | null;
   onClose: () => void;
 }
 
@@ -38,6 +39,7 @@ export function SessionModal({
   sessionKind,
   initialFolderId = null,
   session = null,
+  initialAuth = null,
   onClose,
 }: SessionModalProps) {
   const { t } = useTranslation();
@@ -87,12 +89,12 @@ export function SessionModal({
     existingLinkedCred?.reusable ? existingLinkedCred.id : ""
   );
   const [manualUsername, setManualUsername] = useState(
-    sourcePrivateCred ? sourcePrivateCred.username : ""
+    sourcePrivateCred ? sourcePrivateCred.username : initialAuth?.username ?? ""
   );
   const [manualAuthType, setManualAuthType] = useState<AuthType>(
     sourcePrivateCred ? sourcePrivateCred.auth_type : "password"
   );
-  const [manualPassword, setManualPassword] = useState("");
+  const [manualPassword, setManualPassword] = useState(initialAuth?.password ?? "");
   const [rememberPassword, setRememberPassword] = useState<boolean>(
     sourcePrivateCred ? sourcePrivateCred.has_secret : true
   );

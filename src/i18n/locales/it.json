@@ -73,7 +73,8 @@
     "history_title": "Connessioni recenti",
     "history_empty": "Nessuna connessione rapida nella cronologia.",
     "clear_history": "Cancella",
-    "fill_hint": "Clicca per caricare nella barra e modificare"
+    "fill_hint": "Clicca per caricare nella barra e modificare",
+    "save_to_tree": "Salva nell'albero delle connessioni"
   },
   "sidebar": {
     "title": "Sessioni",

@@ -34,6 +34,7 @@ import { AboutModal } from "./components/AboutModal";
 import {
   QuickConnectBar,
   type QuickConnectPreset,
+  type QuickConnectSaveDraft,
 } from "./components/QuickConnectBar";
 import { resolveIconColor } from "./components/IconColorPicker";
 import { TerminalSolidIcon } from "./components/TerminalSolidIcon";
@@ -89,7 +90,36 @@ export function App() {
     sessionKind: SessionKind;
     folderId?: string | null;
     session?: Session | null;
+    initialAuth?: { username?: string; password?: string } | null;
   } | null>(null);
+
+  const handleSaveQuickToTree = (draft: QuickConnectSaveDraft) => {
+    const draftSession: Session = {
+      id: "",
+      folder_id: null,
+      credential_id: null,
+      name: draft.username ? `${draft.username}@${draft.host}` : draft.host,
+      protocol: draft.protocol,
+      host: draft.host,
+      port: draft.port,
+      remote_initial_path: "/",
+      local_initial_path: "",
+      passive_mode: true,
+      accept_invalid_certs: false,
+      sort_order: 0,
+      icon_color: null,
+    };
+    setSessionModal({
+      mode: "create",
+      sessionKind: draft.protocol === "ssh" ? "ssh" : "transfer",
+      folderId: null,
+      session: draftSession,
+      initialAuth: {
+        username: draft.username,
+        password: draft.password,
+      },
+    });
+  };
 
   const toggleQuickConnectBar = () => {
     setShowQuickConnect((prev) => {
@@ -434,7 +464,12 @@ export function App() {
       </header>
 
       {/* Quick Connect Bar (FileZilla-style) */}
-      {showQuickConnect && <QuickConnectBar preset={quickPreset} />}
+      {showQuickConnect && (
+        <QuickConnectBar
+          preset={quickPreset}
+          onSaveToTree={handleSaveQuickToTree}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 flex">
@@ -745,6 +780,7 @@ export function App() {
           sessionKind={sessionModal.sessionKind}
           initialFolderId={sessionModal.folderId}
           session={sessionModal.session}
+          initialAuth={sessionModal.initialAuth}
           onClose={() => setSessionModal(null)}
         />
       )}

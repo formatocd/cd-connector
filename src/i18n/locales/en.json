@@ -73,7 +73,8 @@
     "history_title": "Recent connections",
     "history_empty": "No quick connections in history yet.",
     "clear_history": "Clear",
-    "fill_hint": "Click to load into bar and edit"
+    "fill_hint": "Click to load into bar and edit",
+    "save_to_tree": "Save to connections tree"
   },
   "sidebar": {
     "title": "Sessions",

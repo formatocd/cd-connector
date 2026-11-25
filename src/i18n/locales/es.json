@@ -73,7 +73,8 @@
     "history_title": "Conexiones recientes",
     "history_empty": "Aún no hay conexiones rápidas en el historial.",
     "clear_history": "Limpiar",
-    "fill_hint": "Haz clic para cargar en la barra y editar"
+    "fill_hint": "Haz clic para cargar en la barra y editar",
+    "save_to_tree": "Guardar en el árbol de conexiones"
   },
   "sidebar": {
     "title": "Sesiones",

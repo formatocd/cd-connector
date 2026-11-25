@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Clock, Play, Trash2, X, Zap } from "lucide-react";
+import { BookmarkPlus, ChevronDown, Clock, Play, Trash2, X, Zap } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import type { Protocol, Session } from "../types";
 
@@ -78,11 +78,20 @@ export interface QuickConnectPreset {
   nonce: number;
 }
 
-interface QuickConnectBarProps {
-  preset?: QuickConnectPreset | null;
+export interface QuickConnectSaveDraft {
+  protocol: Protocol;
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
 }
 
-export function QuickConnectBar({ preset }: QuickConnectBarProps) {
+interface QuickConnectBarProps {
+  preset?: QuickConnectPreset | null;
+  onSaveToTree: (draft: QuickConnectSaveDraft) => void;
+}
+
+export function QuickConnectBar({ preset, onSaveToTree }: QuickConnectBarProps) {
   const { t } = useTranslation();
   const { openSessionTab } = useAppStore();
 
@@ -257,6 +266,40 @@ export function QuickConnectBar({ preset }: QuickConnectBarProps) {
     setHistoryOpen(false);
   };
 
+  const handleSaveCurrentToTree = () => {
+    const cleanHost = host.trim();
+    if (!cleanHost) {
+      hostInputRef.current?.focus();
+      return;
+    }
+    const parsedPort = port.trim() ? Number(port.trim()) : defaultPortForProtocol(protocol);
+    const resolvedPort =
+      Number.isFinite(parsedPort) && parsedPort >= 1 && parsedPort <= 65535
+        ? Math.floor(parsedPort)
+        : defaultPortForProtocol(protocol);
+    onSaveToTree({
+      protocol,
+      host: cleanHost,
+      port: resolvedPort,
+      username: username.trim(),
+      password: password || undefined,
+    });
+  };
+
+  const handleSaveHistoryItemToTree = (
+    e: React.MouseEvent,
+    item: QuickConnectHistoryItem
+  ) => {
+    e.stopPropagation();
+    setHistoryOpen(false);
+    onSaveToTree({
+      protocol: item.protocol,
+      host: item.host,
+      port: item.port,
+      username: item.username,
+    });
+  };
+
   return (
     <div className="shrink-0 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-zinc-900/90">
       <form
@@ -356,59 +399,59 @@ export function QuickConnectBar({ preset }: QuickConnectBarProps) {
           />
         </div>
 
-        {/* Split Connect + History Button */}
-        <div ref={dropdownRef} className="relative flex items-center shrink-0">
-          <button
-            type="submit"
-            disabled={!host.trim()}
-            className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-l-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white transition-colors cursor-pointer"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            {t("toolbar.quick_connect")}
-          </button>
-          <button
-            type="button"
-            title={t("quick_bar.history_title")}
-            onClick={() => setHistoryOpen((prev) => !prev)}
-            className="h-7 px-1.5 rounded-r-md border-l border-indigo-500/60 bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer flex items-center justify-center"
-          >
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
+        {/* Split Connect + History Button & Save to Tree */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div ref={dropdownRef} className="relative flex items-center">
+            <button
+              type="submit"
+              disabled={!host.trim()}
+              className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-l-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white transition-colors cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {t("toolbar.quick_connect")}
+            </button>
+            <button
+              type="button"
+              title={t("quick_bar.history_title")}
+              onClick={() => setHistoryOpen((prev) => !prev)}
+              className="h-7 px-1.5 rounded-r-md border-l border-indigo-500/60 bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer flex items-center justify-center"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
 
-          {historyOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[90vw] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl z-40 overflow-hidden">
-              <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                  <Clock className="w-3 h-3" />
-                  {t("quick_bar.history_title")}
-                </span>
-                {history.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleClearHistory}
-                    className="inline-flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400 hover:underline cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    {t("quick_bar.clear_history")}
-                  </button>
-                )}
-              </div>
-
-              {history.length === 0 ? (
-                <div className="px-3 py-5 text-center text-xs text-zinc-400 dark:text-zinc-500">
-                  {t("quick_bar.history_empty")}
-                </div>
-              ) : (
-                <ul className="max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {history.map((item) => (
-                    <li
-                      key={item.id}
-                      onClick={() => handleFillFromHistory(item)}
-                      title={t("quick_bar.fill_hint")}
-                      className="group px-3 py-2 flex items-center justify-between gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 cursor-pointer"
+            {historyOpen && (
+              <div className="absolute right-0 top-full mt-1.5 min-w-[440px] w-max max-w-[min(680px,92vw)] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl z-40 overflow-hidden">
+                <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    <Clock className="w-3 h-3" />
+                    {t("quick_bar.history_title")}
+                  </span>
+                  {history.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearHistory}
+                      className="inline-flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400 hover:underline cursor-pointer"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
+                      <Trash2 className="w-3 h-3" />
+                      {t("quick_bar.clear_history")}
+                    </button>
+                  )}
+                </div>
+
+                {history.length === 0 ? (
+                  <div className="px-3 py-5 text-center text-xs text-zinc-400 dark:text-zinc-500">
+                    {t("quick_bar.history_empty")}
+                  </div>
+                ) : (
+                  <ul className="max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {history.map((item) => (
+                      <li
+                        key={item.id}
+                        onClick={() => handleFillFromHistory(item)}
+                        title={t("quick_bar.fill_hint")}
+                        className="group px-3 py-2 flex items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/70 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
                           <span
                             className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase shrink-0 ${
                               item.protocol === "ssh"
@@ -423,31 +466,49 @@ export function QuickConnectBar({ preset }: QuickConnectBarProps) {
                             {item.host}:{item.port}
                           </span>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button
-                          type="button"
-                          title={t("sidebar.connect")}
-                          onClick={(e) => handleDirectConnectFromHistory(e, item)}
-                          className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 cursor-pointer"
-                        >
-                          <Play className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          title={t("app.delete")}
-                          onClick={(e) => handleRemoveHistoryItem(e, item.id)}
-                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            title={t("sidebar.connect")}
+                            onClick={(e) => handleDirectConnectFromHistory(e, item)}
+                            className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title={t("quick_bar.save_to_tree")}
+                            onClick={(e) => handleSaveHistoryItemToTree(e, item)}
+                            className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                          >
+                            <BookmarkPlus className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title={t("app.delete")}
+                            onClick={(e) => handleRemoveHistoryItem(e, item.id)}
+                            className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={!host.trim()}
+            title={t("quick_bar.save_to_tree")}
+            onClick={handleSaveCurrentToTree}
+            className="h-7 px-2 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 text-zinc-700 dark:text-zinc-200 transition-colors cursor-pointer flex items-center justify-center"
+          >
+            <BookmarkPlus className="w-3.5 h-3.5" />
+          </button>
         </div>
       </form>
     </div>

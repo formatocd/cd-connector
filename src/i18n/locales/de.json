@@ -73,7 +73,8 @@
     "history_title": "Letzte Verbindungen",
     "history_empty": "Noch keine Schnellverbindungen im Verlauf.",
     "clear_history": "Leeren",
-    "fill_hint": "Klicken, um in die Leiste zu laden und zu bearbeiten"
+    "fill_hint": "Klicken, um in die Leiste zu laden und zu bearbeiten",
+    "save_to_tree": "Im Verbindungsbaum speichern"
   },
   "sidebar": {
     "title": "Sitzungen",
