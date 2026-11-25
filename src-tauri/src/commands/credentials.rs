@@ -45,6 +45,23 @@ pub fn list_credentials(state: State<'_, AppState>) -> AppResult<Vec<CredentialS
     Ok(rows.iter().map(|r| row_to_summary(r, &key)).collect())
 }
 
+fn encrypt_secret_payload(
+    key: &crypto::MasterKey,
+    input: &CredentialInput,
+) -> AppResult<(Vec<u8>, Vec<u8>, bool)> {
+    let payload = CredentialSecretPayload {
+        password: input.password.clone().filter(|s| !s.is_empty()),
+        private_key: input.private_key.clone().filter(|s| !s.is_empty()),
+        passphrase: input.passphrase.clone().filter(|s| !s.is_empty()),
+        tls_cert: None,
+        tls_key: None,
+    };
+    let has_passphrase = payload.passphrase.is_some();
+    let serialized = serde_json::to_vec(&payload)?;
+    let (ct, nonce) = crypto::encrypt(key, &serialized)?;
+    Ok((ct, nonce, has_passphrase))
+}
+
 #[tauri::command]
 pub fn create_credential(
     state: State<'_, AppState>,
@@ -55,11 +72,7 @@ pub fn create_credential(
         return Err(AppError::Validation("Credential name is required".into()));
     }
     let key = state.get_master_key()?;
-
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let conn = state.db_lock()?;
 
     let (encrypted_secret, nonce, has_passphrase) = if input.keep_existing_secret.unwrap_or(false) {
         if let Some(ref source_id) = input.clone_from_credential_id {
@@ -70,43 +83,13 @@ pub fn create_credential(
                 let (ct, n) = crypto::encrypt(&key, &plain)?;
                 (ct, n, source.has_passphrase)
             } else {
-                let payload = CredentialSecretPayload {
-                    password: input.password.filter(|s| !s.is_empty()),
-                    private_key: input.private_key.filter(|s| !s.is_empty()),
-                    passphrase: input.passphrase.filter(|s| !s.is_empty()),
-                    tls_cert: None,
-                    tls_key: None,
-                };
-                let hp = payload.passphrase.is_some();
-                let serialized = serde_json::to_vec(&payload)?;
-                let (ct, n) = crypto::encrypt(&key, &serialized)?;
-                (ct, n, hp)
+                encrypt_secret_payload(&key, &input)?
             }
         } else {
-            let payload = CredentialSecretPayload {
-                password: input.password.filter(|s| !s.is_empty()),
-                private_key: input.private_key.filter(|s| !s.is_empty()),
-                passphrase: input.passphrase.filter(|s| !s.is_empty()),
-                tls_cert: None,
-                tls_key: None,
-            };
-            let hp = payload.passphrase.is_some();
-            let serialized = serde_json::to_vec(&payload)?;
-            let (ct, n) = crypto::encrypt(&key, &serialized)?;
-            (ct, n, hp)
+            encrypt_secret_payload(&key, &input)?
         }
     } else {
-        let payload = CredentialSecretPayload {
-            password: input.password.filter(|s| !s.is_empty()),
-            private_key: input.private_key.filter(|s| !s.is_empty()),
-            passphrase: input.passphrase.filter(|s| !s.is_empty()),
-            tls_cert: None,
-            tls_key: None,
-        };
-        let hp = payload.passphrase.is_some();
-        let serialized = serde_json::to_vec(&payload)?;
-        let (ct, n) = crypto::encrypt(&key, &serialized)?;
-        (ct, n, hp)
+        encrypt_secret_payload(&key, &input)?
     };
 
     let now = Utc::now().to_rfc3339();
@@ -138,10 +121,7 @@ pub fn update_credential(
         return Err(AppError::Validation("Credential name is required".into()));
     }
     let key = state.get_master_key()?;
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let conn = state.db_lock()?;
 
     let existing = db::get_credential_row(&conn, &id)?
         .ok_or_else(|| AppError::NotFound(format!("Credential {id}")))?;
@@ -155,17 +135,7 @@ pub fn update_credential(
             existing.has_passphrase,
         )
     } else {
-        let payload = CredentialSecretPayload {
-            password: input.password.filter(|s| !s.is_empty()),
-            private_key: input.private_key.filter(|s| !s.is_empty()),
-            passphrase: input.passphrase.filter(|s| !s.is_empty()),
-            tls_cert: None,
-            tls_key: None,
-        };
-        let hp = payload.passphrase.is_some();
-        let serialized = serde_json::to_vec(&payload)?;
-        let (ct, n) = crypto::encrypt(&key, &serialized)?;
-        (ct, n, hp)
+        encrypt_secret_payload(&key, &input)?
     };
 
     let updated = CredentialRow {

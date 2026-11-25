@@ -13,7 +13,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::AppResult;
-use crate::models::{AuthType, FileEntry, LogLevel, Protocol, SessionLogEvent};
+use crate::models::{AuthType, FileEntry, LogLevel, SessionLogEvent};
 
 pub struct BandwidthLimiter {
     limit_kbps: AtomicU64,
@@ -130,8 +130,6 @@ impl LogEmitter {
 
 #[async_trait]
 pub trait FileTransferClient: Send + Sync {
-    #[allow(dead_code)]
-    fn protocol(&self) -> Protocol;
     async fn pwd(&mut self) -> AppResult<String>;
     async fn list_dir(&mut self, path: &str) -> AppResult<Vec<FileEntry>>;
     async fn mkdir(&mut self, path: &str) -> AppResult<()>;
@@ -203,4 +201,23 @@ pub fn sort_entries(entries: &mut [FileEntry]) {
             .cmp(&a.is_dir)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_remote_path_normalizes_slashes() {
+        assert_eq!(join_remote_path("/", "file.txt"), "/file.txt");
+        assert_eq!(join_remote_path("", "/file.txt"), "/file.txt");
+        assert_eq!(join_remote_path("/var/www/", "/index.html"), "/var/www/index.html");
+    }
+
+    #[test]
+    fn format_posix_permissions_formats_type_and_bits() {
+        assert_eq!(format_posix_permissions(0o755, true, false), "drwxr-xr-x");
+        assert_eq!(format_posix_permissions(0o644, false, false), "-rw-r--r--");
+        assert_eq!(format_posix_permissions(0o777, false, true), "lrwxrwxrwx");
+    }
 }

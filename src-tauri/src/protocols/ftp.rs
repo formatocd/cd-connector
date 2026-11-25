@@ -91,8 +91,6 @@ fn build_tls_connector(accept_invalid_certs: bool) -> AppResult<AsyncRustlsConne
 
 pub struct FtpClient {
     stream: AsyncRustlsFtpStream,
-    #[allow(dead_code)]
-    protocol: Protocol,
     logger: LogEmitter,
 }
 
@@ -178,7 +176,6 @@ impl FtpClient {
 
         Ok(Self {
             stream,
-            protocol,
             logger,
         })
     }
@@ -186,10 +183,6 @@ impl FtpClient {
 
 #[async_trait]
 impl FileTransferClient for FtpClient {
-    fn protocol(&self) -> Protocol {
-        self.protocol
-    }
-
     async fn pwd(&mut self) -> AppResult<String> {
         self.logger.command("PWD");
         let dir = self.stream.pwd().await.map_err(|e| {
@@ -634,4 +627,48 @@ fn parse_unix_perm_mode(perms: &str) -> Option<u32> {
         }
     }
     Some(mode)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ftp_list_line_handles_unix_and_dos_formats() {
+        assert!(parse_ftp_list_line("total 12", "/").is_none());
+        assert!(parse_ftp_list_line("drwxr-xr-x 2 root root 4096 Nov 21 20:00 .", "/").is_none());
+        assert!(parse_ftp_list_line("drwxr-xr-x 2 root root 4096 Nov 21 20:00 ..", "/").is_none());
+
+        let file = parse_ftp_list_line(
+            "-rw-r--r-- 1 alice staff 1234 Nov 21 20:00 my report.txt",
+            "/docs",
+        )
+        .unwrap();
+        assert_eq!(file.name, "my report.txt");
+        assert_eq!(file.path, "/docs/my report.txt");
+        assert!(!file.is_dir);
+        assert_eq!(file.size, 1234);
+        assert_eq!(file.mode, Some(0o644));
+
+        let link = parse_ftp_list_line(
+            "lrwxrwxrwx 1 root root 11 Nov 21 20:00 current -> release-1.0",
+            "/",
+        )
+        .unwrap();
+        assert!(link.is_symlink);
+        assert_eq!(link.name, "current");
+
+        let dos_dir =
+            parse_ftp_list_line("11-21-26  08:15PM       <DIR>          backups", "/").unwrap();
+        assert!(dos_dir.is_dir);
+        assert_eq!(dos_dir.name, "backups");
+        assert_eq!(dos_dir.path, "/backups");
+    }
+
+    #[test]
+    fn parse_unix_perm_mode_decodes_rwx_bits() {
+        assert_eq!(parse_unix_perm_mode("drwxr-xr-x"), Some(0o755));
+        assert_eq!(parse_unix_perm_mode("-rw-------"), Some(0o600));
+        assert_eq!(parse_unix_perm_mode("short"), None);
+    }
 }

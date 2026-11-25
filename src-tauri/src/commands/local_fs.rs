@@ -126,12 +126,36 @@ pub fn local_rename(from: String, to: String) -> AppResult<()> {
     Ok(())
 }
 
+fn validate_deletable_path(path: &str) -> AppResult<&Path> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Path cannot be empty".into()));
+    }
+    let normalized = trimmed.replace('\\', "/");
+    let stripped = normalized.trim_end_matches('/');
+    // Reject POSIX root "/", Windows drive roots "C:", "C:/", or UNC root "//server" / "//server/share"
+    if stripped.is_empty() {
+        return Err(AppError::Validation("Refusing to delete root path".into()));
+    }
+    if stripped.len() == 2 && stripped.as_bytes()[0].is_ascii_alphabetic() && stripped.as_bytes()[1] == b':' {
+        return Err(AppError::Validation("Refusing to delete drive root".into()));
+    }
+    if normalized.starts_with("//") {
+        let parts: Vec<&str> = normalized.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+        if parts.len() <= 2 {
+            return Err(AppError::Validation("Refusing to delete network share root".into()));
+        }
+    }
+    Ok(Path::new(trimmed))
+}
+
 #[tauri::command]
 pub fn local_delete(path: String, is_dir: bool) -> AppResult<()> {
+    let target = validate_deletable_path(&path)?;
     if is_dir {
-        fs::remove_dir_all(&path)?;
+        fs::remove_dir_all(target)?;
     } else {
-        fs::remove_file(&path)?;
+        fs::remove_file(target)?;
     }
     Ok(())
 }
@@ -165,4 +189,26 @@ pub fn local_stat(path: String) -> AppResult<FileEntry> {
         mode: None,
         owner: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_deletable_path_rejects_empty_and_roots() {
+        for forbidden in ["", "   ", "/", "///", "C:", "C:\\", "C:/", "\\\\server\\share", "//server/share/"] {
+            assert!(
+                validate_deletable_path(forbidden).is_err(),
+                "expected rejection for {forbidden:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_deletable_path_accepts_regular_paths() {
+        assert!(validate_deletable_path("/tmp/demo.txt").is_ok());
+        assert!(validate_deletable_path("C:\\Users\\Carlos\\test.txt").is_ok());
+        assert!(validate_deletable_path("\\\\server\\share\\folder").is_ok());
+    }
 }

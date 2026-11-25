@@ -42,6 +42,39 @@ pub fn create_folder(state: State<'_, AppState>, input: FolderInput) -> AppResul
     Ok(folder)
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeItemKind {
+    Folder,
+    Session,
+}
+
+fn validate_no_folder_cycle(
+    folders: &[Folder],
+    folder_id: &str,
+    new_parent_id: &str,
+) -> AppResult<()> {
+    if new_parent_id == folder_id {
+        return Err(AppError::Validation(
+            "A folder cannot be moved into itself".into(),
+        ));
+    }
+    let parent_map: HashMap<&str, Option<&str>> = folders
+        .iter()
+        .map(|f| (f.id.as_str(), f.parent_id.as_deref()))
+        .collect();
+    let mut cursor = Some(new_parent_id);
+    while let Some(curr) = cursor {
+        if curr == folder_id {
+            return Err(AppError::Validation(
+                "Cannot move a folder into one of its descendants".into(),
+            ));
+        }
+        cursor = parent_map.get(curr).copied().flatten();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn update_folder(
     state: State<'_, AppState>,
@@ -54,30 +87,12 @@ pub fn update_folder(
         return Err(AppError::Validation("Folder name is required".into()));
     }
 
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let conn = state.db_lock()?;
 
     // Prevent circular parenting
     if let Some(ref new_parent) = input.parent_id {
-        if new_parent == &id {
-            return Err(AppError::Validation(
-                "A folder cannot be moved into itself".into(),
-            ));
-        }
         let all = db::list_folders(&conn)?;
-        let parent_map: HashMap<String, Option<String>> =
-            all.into_iter().map(|f| (f.id, f.parent_id)).collect();
-        let mut cursor = Some(new_parent.clone());
-        while let Some(curr) = cursor {
-            if curr == id {
-                return Err(AppError::Validation(
-                    "Cannot move a folder into one of its descendants".into(),
-                ));
-            }
-            cursor = parent_map.get(&curr).cloned().flatten();
-        }
+        validate_no_folder_cycle(&all, &id, new_parent)?;
     }
 
     let folder = Folder {
@@ -168,6 +183,15 @@ pub fn update_session(
         ));
     }
 
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let existing_last_opened = db::list_sessions(&conn)?
+        .into_iter()
+        .find(|s| s.id == id)
+        .and_then(|s| s.last_opened_at);
+
     let session = Session {
         id,
         folder_id: input.folder_id,
@@ -182,13 +206,9 @@ pub fn update_session(
         accept_invalid_certs: input.accept_invalid_certs.unwrap_or(false),
         sort_order: input.sort_order.unwrap_or(0),
         icon_color: input.icon_color,
-        last_opened_at: None,
+        last_opened_at: existing_last_opened,
     };
 
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
     db::update_session(&conn, &session)?;
     Ok(session)
 }
@@ -218,43 +238,25 @@ pub fn mark_session_opened(state: State<'_, AppState>, id: String) -> AppResult<
 #[tauri::command]
 pub fn reorder_tree_items(
     state: State<'_, AppState>,
-    kind: String,
+    kind: TreeItemKind,
     parent_id: Option<String>,
     ordered_ids: Vec<String>,
 ) -> AppResult<()> {
     let _ = state.get_master_key()?;
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let mut conn = state.db_lock()?;
 
-    if kind == "folder" {
+    if matches!(kind, TreeItemKind::Folder) {
         if let Some(ref new_parent) = parent_id {
             let all = db::list_folders(&conn)?;
-            let parent_map: HashMap<String, Option<String>> =
-                all.into_iter().map(|f| (f.id, f.parent_id)).collect();
             for id in &ordered_ids {
-                if new_parent == id {
-                    return Err(AppError::Validation(
-                        "A folder cannot be moved into itself".into(),
-                    ));
-                }
-                let mut cursor = Some(new_parent.clone());
-                while let Some(curr) = cursor {
-                    if &curr == id {
-                        return Err(AppError::Validation(
-                            "Cannot move a folder into one of its descendants".into(),
-                        ));
-                    }
-                    cursor = parent_map.get(&curr).cloned().flatten();
-                }
+                validate_no_folder_cycle(&all, id, new_parent)?;
             }
         }
     }
 
     let tx = conn.transaction()?;
-    match kind.as_str() {
-        "folder" => {
+    match kind {
+        TreeItemKind::Folder => {
             for (idx, id) in ordered_ids.iter().enumerate() {
                 tx.execute(
                     "UPDATE folders SET parent_id = ?1, sort_order = ?2 WHERE id = ?3",
@@ -262,7 +264,7 @@ pub fn reorder_tree_items(
                 )?;
             }
         }
-        "session" => {
+        TreeItemKind::Session => {
             for (idx, id) in ordered_ids.iter().enumerate() {
                 tx.execute(
                     "UPDATE sessions SET folder_id = ?1, sort_order = ?2 WHERE id = ?3",
@@ -270,10 +272,36 @@ pub fn reorder_tree_items(
                 )?;
             }
         }
-        _ => {
-            return Err(AppError::Validation(format!("Invalid tree item kind: {kind}")));
-        }
     }
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(id: &str, parent_id: Option<&str>) -> Folder {
+        Folder {
+            id: id.to_string(),
+            parent_id: parent_id.map(str::to_string),
+            name: id.to_string(),
+            sort_order: 0,
+            icon_color: None,
+        }
+    }
+
+    #[test]
+    fn validate_no_folder_cycle_rejects_self_and_descendants() {
+        let folders = vec![
+            folder("root", None),
+            folder("child", Some("root")),
+            folder("grandchild", Some("child")),
+            folder("sibling", None),
+        ];
+        assert!(validate_no_folder_cycle(&folders, "root", "root").is_err());
+        assert!(validate_no_folder_cycle(&folders, "root", "child").is_err());
+        assert!(validate_no_folder_cycle(&folders, "root", "grandchild").is_err());
+        assert!(validate_no_folder_cycle(&folders, "child", "sibling").is_ok());
+    }
 }

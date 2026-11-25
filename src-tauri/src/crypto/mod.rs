@@ -130,3 +130,27 @@ pub fn remove_transparent_key(app_data_dir: &Path) -> AppResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encrypt_decrypt_roundtrip_and_wrong_key_fails() {
+        let key = MasterKey::random();
+        let other = MasterKey::random();
+        let (ct, nonce) = encrypt(&key, b"top-secret-payload").unwrap();
+        assert_eq!(decrypt(&key, &ct, &nonce).unwrap(), b"top-secret-payload");
+        assert!(matches!(decrypt(&other, &ct, &nonce), Err(AppError::InvalidPassword)));
+        assert!(decrypt(&key, &ct, &[0u8; 4]).is_err());
+    }
+
+    #[test]
+    fn verification_token_matches_only_origin_key() {
+        let key = MasterKey::random();
+        let other = MasterKey::random();
+        let token = create_verification_token(&key).unwrap();
+        assert!(verify_key(&key, &token).unwrap());
+        assert!(!verify_key(&other, &token).unwrap());
+    }
+}

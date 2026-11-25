@@ -15,6 +15,19 @@ use crate::models::{AuthType, HostKeyPromptInfo, KnownHost, SshClosedEvent, SshD
 use crate::protocols::ResolvedAuth;
 use crate::state::SharedLogFile;
 
+/// Builds a safe POSIX `cd` command for the initial SSH directory, rejecting control characters.
+fn build_initial_cd_command(initial_dir: Option<&str>) -> Option<String> {
+    let dir = initial_dir?.trim();
+    if dir.is_empty() || dir == "/" {
+        return None;
+    }
+    if dir.bytes().any(|b| b == b'\n' || b == b'\r' || b == 0) {
+        return None;
+    }
+    let escaped = dir.replace('\'', "'\\''");
+    Some(format!("cd '{escaped}'\n"))
+}
+
 /// Strips ANSI escape sequences (CSI, OSC, and 2-byte ESC sequences) for clean plain-text logs.
 fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len());
@@ -188,6 +201,7 @@ pub async fn connect_ssh_terminal(
     cols: u32,
     rows: u32,
     initial_dir: Option<String>,
+    ssh_terminals: Arc<AsyncRwLock<HashMap<String, SshTerminalHandle>>>,
     ssh_log_files: Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
 ) -> AppResult<SshConnectOutcome> {
     let prompt_info = Arc::new(Mutex::new(None));
@@ -284,13 +298,12 @@ pub async fn connect_ssh_terminal(
         .map_err(|e| AppError::Protocol(format!("Failed to start remote shell: {e}")))?;
 
     // If launched from an SFTP tab with a specific remote directory, cd into it
-    if let Some(dir) = initial_dir.filter(|d| !d.trim().is_empty() && d.trim() != "/") {
-        let escaped = dir.replace('\'', "'\\''");
-        let cmd = format!("cd '{escaped}'\n");
+    if let Some(cmd) = build_initial_cd_command(initial_dir.as_deref()) {
         let _ = channel.data(cmd.as_bytes()).await;
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<SshCommand>();
+    let tx_for_cleanup = tx.clone();
     let tab_id_task = tab_id.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -349,6 +362,24 @@ pub async fn connect_ssh_terminal(
             }
         };
 
+        // Clean up terminal handle and log file if this handle is still the active one for the tab
+        let removed_self = {
+            let mut map = ssh_terminals.write().await;
+            if map
+                .get(&tab_id_task)
+                .map(|h| h.tx.same_channel(&tx_for_cleanup))
+                .unwrap_or(false)
+            {
+                map.remove(&tab_id_task);
+                true
+            } else {
+                false
+            }
+        };
+        if removed_self {
+            ssh_log_files.write().await.remove(&tab_id_task);
+        }
+
         if let Some(reason) = close_reason {
             let _ = app.emit(
                 "ssh-closed",
@@ -365,4 +396,29 @@ pub async fn connect_ssh_terminal(
         handle: SshTerminalHandle { tx },
         newly_trusted_key,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_initial_cd_command_escapes_quotes_and_rejects_control_chars() {
+        assert_eq!(build_initial_cd_command(None), None);
+        assert_eq!(build_initial_cd_command(Some("/")), None);
+        assert_eq!(build_initial_cd_command(Some("  ")), None);
+        assert_eq!(
+            build_initial_cd_command(Some("/var/www/my'site")),
+            Some("cd '/var/www/my'\\''site'\n".to_string())
+        );
+        assert_eq!(build_initial_cd_command(Some("/tmp\nrm -rf /")), None);
+        assert_eq!(build_initial_cd_command(Some("/tmp\rwhoami")), None);
+        assert_eq!(build_initial_cd_command(Some("/tmp\0evil")), None);
+    }
+
+    #[test]
+    fn strip_ansi_bytes_removes_csi_osc_and_cr() {
+        let raw = b"\x1b[32mhello\x1b[0m \x1b]0;title\x07world\r\nline2\x1b]0;st\x1b\\!";
+        assert_eq!(strip_ansi_bytes(raw), b"hello world\nline2!");
+    }
 }

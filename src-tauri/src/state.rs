@@ -1,14 +1,17 @@
+use chrono::Utc;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use uuid::Uuid;
 
-use crate::crypto::MasterKey;
+use crate::crypto::{self, MasterKey};
+use crate::db;
 use crate::error::{AppError, AppResult};
-use crate::models::AppConfig;
+use crate::models::{AppConfig, AuthType, CredentialSecretPayload, KnownHost};
 use crate::protocols::ssh_terminal::SshTerminalHandle;
-use crate::protocols::FileTransferClient;
+use crate::protocols::{FileTransferClient, ResolvedAuth};
 use crate::transfer::TransferManager;
 
 pub type SharedClient = Arc<AsyncMutex<Box<dyn FileTransferClient>>>;
@@ -41,11 +44,17 @@ impl AppState {
         }
     }
 
+    pub fn db_lock(&self) -> AppResult<MutexGuard<'_, Connection>> {
+        self.db
+            .lock()
+            .map_err(|_| AppError::LockPoisoned("DB lock poisoned".into()))
+    }
+
     pub fn get_master_key(&self) -> AppResult<MasterKey> {
         let guard = self
             .master_key
             .read()
-            .map_err(|_| AppError::Crypto("Lock poisoned".into()))?;
+            .map_err(|_| AppError::LockPoisoned("Master key lock poisoned".into()))?;
         guard.clone().ok_or(AppError::VaultLocked)
     }
 
@@ -53,7 +62,7 @@ impl AppState {
         let mut guard = self
             .master_key
             .write()
-            .map_err(|_| AppError::Crypto("Lock poisoned".into()))?;
+            .map_err(|_| AppError::LockPoisoned("Master key lock poisoned".into()))?;
         *guard = key;
         Ok(())
     }
@@ -63,6 +72,73 @@ impl AppState {
             .read()
             .map(|g| g.is_some())
             .unwrap_or(false)
+    }
+
+    pub fn resolve_auth(
+        &self,
+        credential_id: Option<&str>,
+        username: Option<&str>,
+        password: Option<&str>,
+    ) -> AppResult<Option<ResolvedAuth>> {
+        if let Some(user) = username {
+            return Ok(Some(ResolvedAuth {
+                username: user.to_string(),
+                auth_type: AuthType::Password,
+                password: password.map(|s| s.to_string()),
+                private_key: None,
+                passphrase: None,
+            }));
+        }
+
+        if let Some(cred_id) = credential_id {
+            let key = self.get_master_key()?;
+            let conn = self.db_lock()?;
+            let row = db::get_credential_row(&conn, cred_id)?
+                .ok_or_else(|| AppError::NotFound(format!("Credential {cred_id}")))?;
+            let plain = crypto::decrypt(&key, &row.encrypted_secret, &row.nonce)?;
+            let payload: CredentialSecretPayload = serde_json::from_slice(&plain)?;
+
+            if row.auth_type == AuthType::Password && payload.password.is_none() {
+                return Ok(None);
+            }
+
+            return Ok(Some(ResolvedAuth {
+                username: row.username,
+                auth_type: row.auth_type,
+                password: payload.password.clone(),
+                private_key: payload.private_key.clone(),
+                passphrase: payload.passphrase.clone(),
+            }));
+        }
+
+        Ok(None)
+    }
+
+    pub fn list_known_hosts_for(&self, host: &str, port: u16) -> AppResult<Vec<KnownHost>> {
+        let conn = self.db_lock()?;
+        Ok(db::list_known_hosts(&conn)?
+            .into_iter()
+            .filter(|kh| kh.host == host && kh.port == port)
+            .collect())
+    }
+
+    pub fn record_known_host(
+        &self,
+        host: &str,
+        port: u16,
+        key_type: &str,
+        fingerprint: &str,
+    ) -> AppResult<()> {
+        let conn = self.db_lock()?;
+        db::upsert_known_host(
+            &conn,
+            &Uuid::new_v4().to_string(),
+            host,
+            port,
+            key_type,
+            fingerprint,
+            &Utc::now().to_rfc3339(),
+        )
     }
 
     pub async fn get_connection(&self, tab_id: &str) -> AppResult<SharedClient> {

@@ -13,7 +13,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost, Protocol};
+use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost};
 use crate::protocols::{
     format_posix_permissions, join_remote_path, sort_entries, ExistingFileInfo,
     FileTransferClient, LogEmitter, ResolvedAuth, TransferControl, TransferOutcome,
@@ -293,10 +293,6 @@ fn sftp_attrs_to_entry(name: String, path: String, attrs: &FileAttributes) -> Fi
 
 #[async_trait]
 impl FileTransferClient for SftpClient {
-    fn protocol(&self) -> Protocol {
-        Protocol::Sftp
-    }
-
     async fn pwd(&mut self) -> AppResult<String> {
         let dir = self.sftp.canonicalize(".").await.map_err(|e| {
             self.logger.error(format!("SFTP canonicalize error: {e}"));
