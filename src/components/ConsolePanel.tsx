@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Trash2, Send, Info } from "lucide-react";
 import { api } from "../services/tauri";
-import { useAppStore } from "../store/useAppStore";
-import type { LogLevel, Protocol, SessionLogEvent } from "../types";
+import { useAppStore, type SessionLogEntry } from "../store/useAppStore";
+import { isFtpLike } from "../utils/protocols";
+import type { LogLevel, Protocol } from "../types";
 
-const EMPTY_LOGS: SessionLogEvent[] = [];
+const EMPTY_LOGS: SessionLogEntry[] = [];
 
 interface ConsolePanelProps {
   tabId: string;
@@ -38,10 +39,7 @@ export function ConsolePanel({ tabId, protocol, connected }: ConsolePanelProps) 
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const isFtpLike =
-    protocol === "ftp" ||
-    protocol === "ftps_explicit" ||
-    protocol === "ftps_implicit";
+  const ftpLike = isFtpLike(protocol);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,8 +103,8 @@ export function ConsolePanel({ tabId, protocol, connected }: ConsolePanelProps) 
         {logs.length === 0 ? (
           <div className="text-zinc-400 italic">{t("workspace.console_empty")}</div>
         ) : (
-          logs.map((entry, idx) => (
-            <div key={idx} className="flex gap-2 leading-relaxed">
+          logs.map((entry) => (
+            <div key={entry.id} className="flex gap-2 leading-relaxed">
               <span className="text-zinc-400 shrink-0">{entry.timestamp}</span>
               <span className={`shrink-0 font-bold ${LEVEL_STYLES[entry.level]}`}>
                 {LEVEL_PREFIX[entry.level]}
@@ -122,7 +120,7 @@ export function ConsolePanel({ tabId, protocol, connected }: ConsolePanelProps) 
 
       {/* Raw FTP Command Prompt (RF-15) */}
       <div className="px-3 py-1.5 border-t border-zinc-200/70 dark:border-zinc-800/70 bg-white dark:bg-zinc-950">
-        {isFtpLike ? (
+        {ftpLike ? (
           <form onSubmit={handleSend} className="flex items-center gap-2">
             <span className="font-mono text-xs text-indigo-500 font-bold">&gt;</span>
             <input

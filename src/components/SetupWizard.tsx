@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import {
   ShieldCheck,
   KeyRound,
@@ -19,7 +20,14 @@ import {
 
 export function SetupWizard() {
   const { t } = useTranslation();
-  const { config, setSecurity, refreshVaultData, updateConfig } = useAppStore();
+  const { config, setSecurity, refreshVaultData, updateConfig } = useAppStore(
+    useShallow((s) => ({
+      config: s.config,
+      setSecurity: s.setSecurity,
+      refreshVaultData: s.refreshVaultData,
+      updateConfig: s.updateConfig,
+    }))
+  );
 
   const [tab, setTab] = useState<"new" | "from_json">("new");
   const [mode, setMode] = useState<SecurityMode>("master_password");

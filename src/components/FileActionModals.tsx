@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X, AlertTriangle, Shield } from "lucide-react";
+import { formatBytesWithExact } from "../utils/format";
 import type { FileEntry } from "../types";
 
 // --- Text Prompt Modal (New Folder / Rename) ---
@@ -279,13 +280,6 @@ interface PropertiesModalProps {
   onClose: () => void;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, idx)).toFixed(idx === 0 ? 0 : 1)} ${units[idx]} (${bytes.toLocaleString()} B)`;
-}
-
 export function PropertiesModal({
   entry,
   isRemote,
@@ -375,7 +369,7 @@ export function PropertiesModal({
               <div className="flex justify-between gap-3">
                 <span className="text-zinc-500 shrink-0">{t("workspace.col_size")}:</span>
                 <span className="font-mono text-zinc-800 dark:text-zinc-200">
-                  {formatBytes(entry.size)}
+                  {formatBytesWithExact(entry.size)}
                 </span>
               </div>
             )}

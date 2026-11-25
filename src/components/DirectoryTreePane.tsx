@@ -103,10 +103,18 @@ export function DirectoryTreePane({
       setRoots(["/"]);
       return;
     }
+    let cancelled = false;
     api
       .localListRoots()
-      .then((list) => setRoots(list.map((r) => normalizePath(r, false))))
-      .catch(() => setRoots(["/"]));
+      .then((list) => {
+        if (!cancelled) setRoots(list.map((r) => normalizePath(r, false)));
+      })
+      .catch(() => {
+        if (!cancelled) setRoots(["/"]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isRemote]);
 
   // Sync current directory's subdirectories from already-loaded entries & expand ancestors

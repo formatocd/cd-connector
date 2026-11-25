@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import { Terminal } from "@xterm/xterm";
@@ -67,7 +68,13 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProps) {
   const { t } = useTranslation();
-  const { config, credentials, closeTab } = useAppStore();
+  const { config, credentials, closeTab } = useAppStore(
+    useShallow((s) => ({
+      config: s.config,
+      credentials: s.credentials,
+      closeTab: s.closeTab,
+    }))
+  );
   const { session, tabId, transientAuth } = tab;
 
   const [connState, setConnState] = useState<ConnectionState>("idle");
@@ -357,12 +364,22 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     }
   }, [isActive, tabId]);
 
-  // Sync terminal colors & font when settings change
+  // Sync terminal colors & font when settings or OS theme change
   useEffect(() => {
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term) return;
-    term.options.theme = isDarkTheme() ? DARK_THEME : LIGHT_THEME;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const dark =
+        config.theme === "dark" || (config.theme === "system" && media.matches);
+      term.options.theme = dark ? DARK_THEME : LIGHT_THEME;
+    };
+
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+
     term.options.fontFamily =
       config.terminal_font_family ||
       "Cascadia Code, Consolas, ui-monospace, monospace";
@@ -377,18 +394,28 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
         }
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+      media.removeEventListener("change", applyTheme);
+    };
   }, [config.theme, config.terminal_font_family, config.terminal_font_size, tabId]);
 
   // Listen to backend SSH output & close events
   useEffect(() => {
-    const unlistenData = listen<SshDataEvent>("ssh-data", (event) => {
-      if (event.payload.tab_id !== tabId) return;
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+
+    listen<SshDataEvent>("ssh-data", (event) => {
+      if (cancelled || event.payload.tab_id !== tabId) return;
       const bytes = base64ToBytes(event.payload.data_b64);
       termRef.current?.write(bytes);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisteners.push(fn);
     });
-    const unlistenClosed = listen<SshClosedEvent>("ssh-closed", (event) => {
-      if (event.payload.tab_id !== tabId) return;
+
+    listen<SshClosedEvent>("ssh-closed", (event) => {
+      if (cancelled || event.payload.tab_id !== tabId) return;
       setConnState("disconnected");
       termRef.current?.writeln(
         `\r\n\x1b[33m[${event.payload.reason}]\x1b[0m`
@@ -397,10 +424,14 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
         `\x1b[90m${t("workspace.ssh_disconnected_hint")}\x1b[0m`
       );
       termRef.current?.focus();
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisteners.push(fn);
     });
+
     return () => {
-      unlistenData.then((fn) => fn());
-      unlistenClosed.then((fn) => fn());
+      cancelled = true;
+      for (const fn of unlisteners) fn();
     };
   }, [tabId, t]);
 

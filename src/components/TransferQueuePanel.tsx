@@ -12,16 +12,10 @@ import {
 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { formatBytes } from "../utils/format";
 import type { TransferStatus } from "../types";
 
 type QueueFilter = "all" | "active" | "completed" | "failed";
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, idx)).toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
-}
 
 function formatSpeed(bps: number): string {
   if (bps <= 0) return "—";

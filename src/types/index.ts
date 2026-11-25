@@ -333,18 +333,7 @@ export interface BackendError {
   message?: string;
 }
 
-export function defaultPortForProtocol(protocol: Protocol): number {
-  switch (protocol) {
-    case "ftp":
-    case "ftps_explicit":
-      return 21;
-    case "ftps_implicit":
-      return 990;
-    case "sftp":
-    case "ssh":
-      return 22;
-  }
-}
+export { defaultPortForProtocol } from "../utils/protocols";
 
 export function extractErrorMessage(err: unknown): string {
   if (typeof err === "string") return err;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { KeyRound, X } from "lucide-react";
+import { isFtpLike } from "../utils/protocols";
 import type { Protocol } from "../types";
 
 interface AuthPromptModalProps {
@@ -24,10 +25,7 @@ export function AuthPromptModal({
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState("");
 
-  const isFtpLike =
-    protocol === "ftp" ||
-    protocol === "ftps_explicit" ||
-    protocol === "ftps_implicit";
+  const ftpLike = isFtpLike(protocol);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +84,7 @@ export function AuthPromptModal({
           </div>
 
           <div className="flex items-center justify-between gap-2 pt-2">
-            {isFtpLike ? (
+            {ftpLike ? (
               <button
                 type="button"
                 onClick={() => onSubmit("anonymous", "anonymous@cd-remote")}

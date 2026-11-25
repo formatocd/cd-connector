@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { Settings, Shield, X, CheckCircle2 } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
@@ -11,7 +12,14 @@ interface SettingsModalProps {
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { t } = useTranslation();
-  const { config, security, updateConfig, setSecurity } = useAppStore();
+  const { config, security, updateConfig, setSecurity } = useAppStore(
+    useShallow((s) => ({
+      config: s.config,
+      security: s.security,
+      updateConfig: s.updateConfig,
+      setSecurity: s.setSecurity,
+    }))
+  );
 
   const [theme, setTheme] = useState<AppConfig["theme"]>(config.theme);
   const [language, setLanguage] = useState<AppConfig["language"]>(config.language);

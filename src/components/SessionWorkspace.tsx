@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
@@ -23,6 +24,7 @@ import {
   type HostKeyPromptInfo,
   type OpenTab,
 } from "../types";
+import { joinPath, parentLocalPath, parentRemotePath } from "../utils/paths";
 
 interface SessionWorkspaceProps {
   tab: OpenTab;
@@ -38,46 +40,15 @@ type ModalState =
   | { kind: "properties"; isRemote: boolean; entry: FileEntry }
   | null;
 
-function parentRemotePath(path: string): string {
-  const cleaned = path.replace(/\/+$/, "");
-  if (!cleaned || cleaned === "/") return "/";
-  const idx = cleaned.lastIndexOf("/");
-  if (idx <= 0) return "/";
-  return cleaned.slice(0, idx);
-}
-
-function parentLocalPath(path: string): string {
-  // Windows UNC path e.g. \\server\share\sub -> \\server\share
-  if (/^(\\\\|\/\/)/.test(path)) {
-    const cleaned = path.replace(/\//g, "\\").replace(/\\+$/, "");
-    const parts = cleaned.replace(/^\\+/, "").split("\\").filter(Boolean);
-    if (parts.length <= 2) {
-      return parts.length === 2 ? `\\\\${parts[0]}\\${parts[1]}` : cleaned;
-    }
-    return `\\\\${parts.slice(0, -1).join("\\")}`;
-  }
-  const sep = path.includes("\\") ? "\\" : "/";
-  const cleaned = path.replace(/[\\/]+$/, "");
-  const idx = Math.max(cleaned.lastIndexOf("\\"), cleaned.lastIndexOf("/"));
-  if (idx < 0) return path;
-  if (idx === 0) return "/";
-  if (sep === "\\" && idx === 2 && cleaned[1] === ":") {
-    return `${cleaned.slice(0, 2)}\\`;
-  }
-  return cleaned.slice(0, idx);
-}
-
-function joinPath(base: string, name: string, isLocal: boolean): string {
-  if (isLocal) {
-    const sep = base.includes("\\") ? "\\" : "/";
-    return base.endsWith(sep) ? `${base}${name}` : `${base}${sep}${name}`;
-  }
-  return base === "/" || !base ? `/${name}` : `${base.replace(/\/+$/, "")}/${name}`;
-}
-
 export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
   const { t } = useTranslation();
-  const { config, credentials, openSessionTab } = useAppStore();
+  const { config, credentials, openSessionTab } = useAppStore(
+    useShallow((s) => ({
+      config: s.config,
+      credentials: s.credentials,
+      openSessionTab: s.openSessionTab,
+    }))
+  );
   const { session, tabId, transientAuth } = tab;
 
   // Connection state
@@ -319,54 +290,74 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
 
   // Auto-refresh destination panel when a transfer finishes for this tab
   useEffect(() => {
-    const unlistenPromise = listen<{ tab_id: string; direction: "upload" | "download" }>(
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen<{ tab_id: string; direction: "upload" | "download" }>(
       "transfer-completed",
       (event) => {
-        if (event.payload.tab_id !== tabId) return;
+        if (cancelled || event.payload.tab_id !== tabId) return;
         if (event.payload.direction === "upload") {
           loadRemoteDir(remotePath);
         } else {
           loadLocalDir(localPath);
         }
       }
-    );
+    ).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
     return () => {
-      unlistenPromise.then((fn) => fn());
+      cancelled = true;
+      unlisten?.();
     };
   }, [tabId, remotePath, localPath, loadRemoteDir, loadLocalDir]);
 
   // Native OS-to-App Drag & Drop upload (RF-13)
   useEffect(() => {
     if (!isActive) return;
-    const unlistenPromise = getCurrentWebview().onDragDropEvent((event) => {
-      if (connState !== "connected") return;
-      if (event.payload.type === "over" || event.payload.type === "enter") {
-        setOsDragOver(true);
-      } else if (event.payload.type === "leave") {
-        setOsDragOver(false);
-      } else if (event.payload.type === "drop") {
-        setOsDragOver(false);
-        const paths = event.payload.paths;
-        if (paths.length === 0) return;
-        const items = paths.map((p) => {
-          const name = p.split(/[\\/]/).filter(Boolean).pop() ?? p;
-          return {
-            local_path: p,
-            remote_path: joinPath(remotePath, name, false),
-            is_dir: false, // Backend checks Path::is_dir() automatically
-          };
-        });
-        api
-          .enqueueTransfers({
-            tab_id: tabId,
-            direction: "upload",
-            items,
-          })
-          .catch((err) => setRemoteError(extractErrorMessage(err)));
-      }
-    });
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (cancelled || connState !== "connected") return;
+        if (event.payload.type === "over" || event.payload.type === "enter") {
+          setOsDragOver(true);
+        } else if (event.payload.type === "leave") {
+          setOsDragOver(false);
+        } else if (event.payload.type === "drop") {
+          setOsDragOver(false);
+          const paths = event.payload.paths;
+          if (paths.length === 0) return;
+          const items = paths.map((p) => {
+            const name = p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+            return {
+              local_path: p,
+              remote_path: joinPath(remotePath, name, false),
+              is_dir: false, // Backend checks Path::is_dir() automatically
+            };
+          });
+          api
+            .enqueueTransfers({
+              tab_id: tabId,
+              direction: "upload",
+              items,
+            })
+            .catch((err) => setRemoteError(extractErrorMessage(err)));
+        }
+      })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      });
     return () => {
-      unlistenPromise.then((fn) => fn());
+      cancelled = true;
+      unlisten?.();
     };
   }, [isActive, connState, tabId, remotePath]);
 

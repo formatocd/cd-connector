@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import {
   ChevronDown,
   ChevronRight,
@@ -62,7 +63,14 @@ export function Sidebar({
   onDuplicateSession,
 }: SidebarProps) {
   const { t } = useTranslation();
-  const { folders, sessions, refreshVaultData, openSessionTab } = useAppStore();
+  const { folders, sessions, refreshVaultData, openSessionTab } = useAppStore(
+    useShallow((s) => ({
+      folders: s.folders,
+      sessions: s.sessions,
+      refreshVaultData: s.refreshVaultData,
+      openSessionTab: s.openSessionTab,
+    }))
+  );
 
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -77,6 +85,14 @@ export function Sidebar({
   const [dragGhostPos, setDragGhostPos] = useState<{ x: number; y: number } | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator>(null);
   const suppressClickRef = useRef(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = null;
+    };
+  }, []);
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "folder"; item: Folder } | { kind: "session"; item: Session } | null
   >(null);
@@ -335,10 +351,17 @@ export function Sidebar({
       setDropIndicator(latestIndicator);
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      if (dragCleanupRef.current === cleanup) {
+        dragCleanupRef.current = null;
+      }
+    };
+
+    const onUp = () => {
+      cleanup();
       if (active) {
         suppressClickRef.current = true;
         window.setTimeout(() => {
@@ -352,6 +375,8 @@ export function Sidebar({
       }
     };
 
+    dragCleanupRef.current?.();
+    dragCleanupRef.current = cleanup;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import {
   PanelLeft,
@@ -38,6 +39,7 @@ import {
 } from "./components/QuickConnectBar";
 import { resolveIconColor } from "./components/IconColorPicker";
 import { TerminalSolidIcon } from "./components/TerminalSolidIcon";
+import { readStorageItem, writeStorageItem } from "./utils/storage";
 import type {
   ConflictPromptEvent,
   Session,
@@ -71,19 +73,40 @@ export function App() {
     setTransfers,
     pushConflict,
     removeConflict,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      loading: s.loading,
+      security: s.security,
+      config: s.config,
+      tabs: s.tabs,
+      activeTabId: s.activeTabId,
+      secondaryTabId: s.secondaryTabId,
+      splitDirection: s.splitDirection,
+      focusedPane: s.focusedPane,
+      initialize: s.initialize,
+      setSecurity: s.setSecurity,
+      updateConfig: s.updateConfig,
+      setActiveTab: s.setActiveTab,
+      closeTab: s.closeTab,
+      duplicateTab: s.duplicateTab,
+      reorderTabs: s.reorderTabs,
+      setSplitDirection: s.setSplitDirection,
+      setFocusedPane: s.setFocusedPane,
+      appendSessionLog: s.appendSessionLog,
+      conflictQueue: s.conflictQueue,
+      setTransfers: s.setTransfers,
+      pushConflict: s.pushConflict,
+      removeConflict: s.removeConflict,
+    }))
+  );
 
   const [showCredentials, setShowCredentials] = useState(false);
   const [showImportExport, setShowImportExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
-  const [showQuickConnect, setShowQuickConnect] = useState(() => {
-    try {
-      return localStorage.getItem("cd-remote-show-quick-bar") !== "false";
-    } catch {
-      return true;
-    }
-  });
+  const [showQuickConnect, setShowQuickConnect] = useState(
+    () => readStorageItem("cd-remote-show-quick-bar") !== "false"
+  );
   const [quickPreset, setQuickPreset] = useState<QuickConnectPreset | null>(null);
   const [sessionModal, setSessionModal] = useState<{
     mode: "create" | "edit" | "duplicate" | "quick";
@@ -124,11 +147,7 @@ export function App() {
   const toggleQuickConnectBar = () => {
     setShowQuickConnect((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem("cd-remote-show-quick-bar", String(next));
-      } catch {
-        // Ignore storage errors
-      }
+      writeStorageItem("cd-remote-show-quick-bar", String(next));
       return next;
     });
   };
@@ -151,11 +170,20 @@ export function App() {
     position: "before" | "after";
   } | null>(null);
   const suppressTabClickRef = useRef(false);
+  const activePointerCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activePointerCleanupRef.current?.();
+      activePointerCleanupRef.current = null;
+    };
+  }, []);
 
   const startTabPointerDrag = (e: React.PointerEvent, tabId: string, label: string) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement | null)?.closest("button")) return;
 
+    activePointerCleanupRef.current?.();
     const startX = e.clientX;
     const startY = e.clientY;
     let active = false;
@@ -184,10 +212,17 @@ export function App() {
       setTabDropTarget(latestTarget);
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      if (activePointerCleanupRef.current === cleanup) {
+        activePointerCleanupRef.current = null;
+      }
+    };
+
+    const onUp = () => {
+      cleanup();
       if (active) {
         suppressTabClickRef.current = true;
         window.setTimeout(() => {
@@ -202,6 +237,7 @@ export function App() {
       }
     };
 
+    activePointerCleanupRef.current = cleanup;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
@@ -215,6 +251,7 @@ export function App() {
     e.preventDefault();
     const container = workspaceContainerRef.current;
     if (!container) return;
+    activePointerCleanupRef.current?.();
     const rect = container.getBoundingClientRect();
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -225,13 +262,23 @@ export function App() {
       setSplitRatio(Math.min(80, Math.max(20, ratio)));
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (activePointerCleanupRef.current === cleanup) {
+        activePointerCleanupRef.current = null;
+      }
     };
 
+    const onUp = () => {
+      cleanup();
+    };
+
+    activePointerCleanupRef.current = cleanup;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   useEffect(() => {
@@ -240,19 +287,27 @@ export function App() {
 
   // Subscribe to real-time backend session logs & transfer queue events
   useEffect(() => {
-    const unlistenLog = listen<SessionLogEvent>("session-log", (event) => {
-      appendSessionLog(event.payload);
-    });
-    const unlistenQueue = listen<TransferItem[]>("transfer-queue-updated", (event) => {
-      setTransfers(event.payload);
-    });
-    const unlistenConflict = listen<ConflictPromptEvent>("transfer-conflict", (event) => {
-      pushConflict(event.payload);
-    });
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const register = <T,>(eventName: string, handler: (payload: T) => void) => {
+      listen<T>(eventName, (event) => {
+        if (!cancelled) handler(event.payload);
+      }).then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisteners.push(fn);
+        }
+      });
+    };
+
+    register<SessionLogEvent>("session-log", appendSessionLog);
+    register<TransferItem[]>("transfer-queue-updated", setTransfers);
+    register<ConflictPromptEvent>("transfer-conflict", pushConflict);
+
     return () => {
-      unlistenLog.then((fn) => fn());
-      unlistenQueue.then((fn) => fn());
-      unlistenConflict.then((fn) => fn());
+      cancelled = true;
+      for (const fn of unlisteners) fn();
     };
   }, [appendSessionLog, setTransfers, pushConflict]);
 
@@ -643,11 +698,7 @@ export function App() {
             <HomePage
               onQuickConnect={(sessionKind) => {
                 setShowQuickConnect(true);
-                try {
-                  localStorage.setItem("cd-remote-show-quick-bar", "true");
-                } catch {
-                  // Ignore storage errors
-                }
+                writeStorageItem("cd-remote-show-quick-bar", "true");
                 setQuickPreset({
                   protocol: sessionKind === "ssh" ? "ssh" : "sftp",
                   nonce: Date.now(),

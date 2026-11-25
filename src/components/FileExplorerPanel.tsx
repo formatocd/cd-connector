@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { DirectoryTreePane } from "./DirectoryTreePane";
+import { formatBytes } from "../utils/format";
 import { FileIcon } from "./FileIcon";
 import { FileContextMenu, type ContextMenuState } from "./FileContextMenu";
 import type { FileEntry } from "../types";
@@ -40,14 +41,6 @@ interface FileExplorerPanelProps {
   onProperties: (entry: FileEntry) => void;
   onTransfer?: (entries: FileEntry[]) => void;
   onDropFromOpposite?: (entries: FileEntry[]) => void;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / Math.pow(1024, idx);
-  return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
 function formatModified(raw: string | null): string {
@@ -262,13 +255,28 @@ export function FileExplorerPanel({
     if (!raw) return;
     e.preventDefault();
     try {
-      const parsed = JSON.parse(raw) as {
-        source: "local" | "remote";
-        entries: FileEntry[];
-      };
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        !("source" in parsed) ||
+        !("entries" in parsed) ||
+        !Array.isArray((parsed as { entries: unknown }).entries)
+      ) {
+        return;
+      }
+      const { source, entries } = parsed as { source: unknown; entries: unknown[] };
       const expectedSource = isRemote ? "local" : "remote";
-      if (parsed.source === expectedSource && parsed.entries.length > 0) {
-        onDropFromOpposite(parsed.entries);
+      const validEntries = entries.filter(
+        (entry): entry is FileEntry =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as FileEntry).name === "string" &&
+          typeof (entry as FileEntry).path === "string" &&
+          typeof (entry as FileEntry).is_dir === "boolean"
+      );
+      if (source === expectedSource && validEntries.length > 0) {
+        onDropFromOpposite(validEntries);
       }
     } catch {
       // ignore invalid payload
