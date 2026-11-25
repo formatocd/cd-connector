@@ -62,6 +62,20 @@
     "lock_vault": "Blocca cassaforte",
     "help": "Aiuto / Informazioni"
   },
+  "quick_bar": {
+    "toggle_tooltip": "Mostra/Nascondi barra di connessione rapida",
+    "protocol": "Protocollo:",
+    "host": "Host:",
+    "username": "Nome utente:",
+    "username_placeholder": "utente",
+    "password": "Password:",
+    "port": "Porta:",
+    "history_title": "Connessioni recenti",
+    "history_empty": "Nessuna connessione rapida nella cronologia.",
+    "clear_history": "Cancella",
+    "fill_hint": "Clicca per caricare nella barra e modificare",
+    "save_to_tree": "Salva nell'albero delle connessioni"
+  },
   "sidebar": {
     "title": "Sessioni",
     "new_folder": "Nuova cartella",

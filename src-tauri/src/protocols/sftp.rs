@@ -13,10 +13,11 @@ use std::time::{Duration, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost, Protocol};
+use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost};
 use crate::protocols::{
-    format_posix_permissions, join_remote_path, sort_entries, ExistingFileInfo,
-    FileTransferClient, LogEmitter, ResolvedAuth, TransferControl, TransferOutcome,
+    evaluate_ssh_host_key, format_posix_permissions, is_safe_remote_entry_name, join_remote_path,
+    sort_entries, ExistingFileInfo, FileTransferClient, HostKeyDecision, LogEmitter, ResolvedAuth,
+    TransferControl, TransferOutcome,
 };
 
 pub enum SftpConnectOutcome {
@@ -31,7 +32,7 @@ struct SftpHandler {
     host: String,
     port: u16,
     known_hosts: Vec<KnownHost>,
-    trust_host_key: bool,
+    expected_fingerprint: Option<String>,
     prompt_info: Arc<Mutex<Option<HostKeyPromptInfo>>>,
     accepted_key: Arc<Mutex<Option<(String, String)>>>,
     logger: LogEmitter,
@@ -55,61 +56,45 @@ impl client::Handler for SftpHandler {
             ),
         };
 
-        if let Some(existing) = self.known_hosts.iter().find(|kh| kh.key_type == key_type) {
-            if existing.fingerprint == fingerprint {
+        match evaluate_ssh_host_key(
+            &self.host,
+            self.port,
+            &self.known_hosts,
+            &key_type,
+            &fingerprint,
+            self.expected_fingerprint.as_deref(),
+        ) {
+            HostKeyDecision::Verified => {
                 self.logger
                     .info(format!("Host key verified ({key_type}: {fingerprint})"));
-                return Ok(true);
+                Ok(true)
             }
-            if self.trust_host_key {
+            HostKeyDecision::TrustedNew => {
                 self.logger
-                    .info(format!("Updated trusted host key ({key_type}: {fingerprint})"));
+                    .info(format!("Trusted host key ({key_type}: {fingerprint})"));
                 if let Ok(mut guard) = self.accepted_key.lock() {
                     *guard = Some((key_type, fingerprint));
                 }
-                return Ok(true);
+                Ok(true)
             }
-            self.logger.error(format!(
-                "Host key MISMATCH for {}:{} ({key_type})!",
-                self.host, self.port
-            ));
-            if let Ok(mut guard) = self.prompt_info.lock() {
-                *guard = Some(HostKeyPromptInfo {
-                    host: self.host.clone(),
-                    port: self.port,
-                    key_type,
-                    fingerprint,
-                    mismatch: true,
-                    previous_fingerprint: Some(existing.fingerprint.clone()),
-                });
+            HostKeyDecision::Prompt(info) => {
+                if info.mismatch {
+                    self.logger.error(format!(
+                        "Host key MISMATCH for {}:{} ({key_type})!",
+                        self.host, self.port
+                    ));
+                } else {
+                    self.logger.info(format!(
+                        "Unknown host key for {}:{} ({key_type}: {fingerprint}) — awaiting user confirmation",
+                        self.host, self.port
+                    ));
+                }
+                if let Ok(mut guard) = self.prompt_info.lock() {
+                    *guard = Some(info);
+                }
+                Ok(false)
             }
-            return Ok(false);
         }
-
-        if self.trust_host_key {
-            self.logger
-                .info(format!("Trusted new host key ({key_type}: {fingerprint})"));
-            if let Ok(mut guard) = self.accepted_key.lock() {
-                *guard = Some((key_type, fingerprint));
-            }
-            return Ok(true);
-        }
-
-        self.logger.info(format!(
-            "Unknown host key for {}:{} ({key_type}: {fingerprint}) — awaiting user confirmation",
-            self.host, self.port
-        ));
-        if let Ok(mut guard) = self.prompt_info.lock() {
-            *guard = Some(HostKeyPromptInfo {
-                host: self.host.clone(),
-                port: self.port,
-                key_type,
-                fingerprint,
-                mismatch: false,
-                previous_fingerprint: None,
-            });
-        }
-        Ok(false)
     }
 }
 
@@ -125,7 +110,7 @@ impl SftpClient {
         port: u16,
         auth: &ResolvedAuth,
         known_hosts: Vec<KnownHost>,
-        trust_host_key: bool,
+        expected_fingerprint: Option<String>,
         logger: LogEmitter,
     ) -> AppResult<SftpConnectOutcome> {
         let prompt_info = Arc::new(Mutex::new(None));
@@ -135,7 +120,7 @@ impl SftpClient {
             host: host.to_string(),
             port,
             known_hosts,
-            trust_host_key,
+            expected_fingerprint,
             prompt_info: prompt_info.clone(),
             accepted_key: accepted_key.clone(),
             logger: logger.clone(),
@@ -148,7 +133,15 @@ impl SftpClient {
         };
 
         logger.info(format!("Connecting to {host}:{port} via SSH/SFTP..."));
-        let connect_result = client::connect(Arc::new(config), (host, port), handler).await;
+        let connect_result = tokio::time::timeout(
+            Duration::from_secs(30),
+            client::connect(Arc::new(config), (host, port), handler),
+        )
+        .await
+        .map_err(|_| {
+            logger.error("SSH/SFTP connection timed out after 30s");
+            AppError::Protocol("SSH/SFTP connection timed out after 30s".into())
+        })?;
 
         let mut handle = match connect_result {
             Ok(h) => h,
@@ -293,10 +286,6 @@ fn sftp_attrs_to_entry(name: String, path: String, attrs: &FileAttributes) -> Fi
 
 #[async_trait]
 impl FileTransferClient for SftpClient {
-    fn protocol(&self) -> Protocol {
-        Protocol::Sftp
-    }
-
     async fn pwd(&mut self) -> AppResult<String> {
         let dir = self.sftp.canonicalize(".").await.map_err(|e| {
             self.logger.error(format!("SFTP canonicalize error: {e}"));
@@ -317,7 +306,7 @@ impl FileTransferClient for SftpClient {
         let mut entries = Vec::new();
         for entry in read_dir {
             let name = entry.file_name();
-            if name == "." || name == ".." {
+            if !is_safe_remote_entry_name(&name) {
                 continue;
             }
             let full_path = join_remote_path(target, &name);

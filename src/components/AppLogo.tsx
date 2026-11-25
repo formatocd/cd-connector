@@ -37,14 +37,6 @@ export function AppLogo({ className = "w-12 h-12" }: AppLogoProps) {
         strokeWidth="34"
         opacity="0.95"
       />
-      <circle
-        cx="256"
-        cy="256"
-        r="52"
-        fill="#0f172a"
-        stroke="#e2e8f0"
-        strokeWidth="14"
-      />
       <path
         d="M168 220 L316 220 L282 186"
         fill="none"

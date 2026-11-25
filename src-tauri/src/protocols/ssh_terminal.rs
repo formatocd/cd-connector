@@ -12,8 +12,21 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AuthType, HostKeyPromptInfo, KnownHost, SshClosedEvent, SshDataEvent};
-use crate::protocols::ResolvedAuth;
+use crate::protocols::{evaluate_ssh_host_key, HostKeyDecision, ResolvedAuth};
 use crate::state::SharedLogFile;
+
+/// Builds a safe POSIX `cd` command for the initial SSH directory, rejecting control characters.
+fn build_initial_cd_command(initial_dir: Option<&str>) -> Option<String> {
+    let dir = initial_dir?.trim();
+    if dir.is_empty() || dir == "/" {
+        return None;
+    }
+    if dir.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return None;
+    }
+    let escaped = dir.replace('\'', "'\\''");
+    Some(format!("cd '{escaped}'\n"))
+}
 
 /// Strips ANSI escape sequences (CSI, OSC, and 2-byte ESC sequences) for clean plain-text logs.
 fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
@@ -110,7 +123,7 @@ struct SshTermHandler {
     host: String,
     port: u16,
     known_hosts: Vec<KnownHost>,
-    trust_host_key: bool,
+    expected_fingerprint: Option<String>,
     prompt_info: Arc<Mutex<Option<HostKeyPromptInfo>>>,
     accepted_key: Arc<Mutex<Option<(String, String)>>>,
 }
@@ -133,47 +146,28 @@ impl client::Handler for SshTermHandler {
             ),
         };
 
-        if let Some(existing) = self.known_hosts.iter().find(|kh| kh.key_type == key_type) {
-            if existing.fingerprint == fingerprint {
-                return Ok(true);
-            }
-            if self.trust_host_key {
+        match evaluate_ssh_host_key(
+            &self.host,
+            self.port,
+            &self.known_hosts,
+            &key_type,
+            &fingerprint,
+            self.expected_fingerprint.as_deref(),
+        ) {
+            HostKeyDecision::Verified => Ok(true),
+            HostKeyDecision::TrustedNew => {
                 if let Ok(mut guard) = self.accepted_key.lock() {
                     *guard = Some((key_type, fingerprint));
                 }
-                return Ok(true);
+                Ok(true)
             }
-            if let Ok(mut guard) = self.prompt_info.lock() {
-                *guard = Some(HostKeyPromptInfo {
-                    host: self.host.clone(),
-                    port: self.port,
-                    key_type,
-                    fingerprint,
-                    mismatch: true,
-                    previous_fingerprint: Some(existing.fingerprint.clone()),
-                });
+            HostKeyDecision::Prompt(info) => {
+                if let Ok(mut guard) = self.prompt_info.lock() {
+                    *guard = Some(info);
+                }
+                Ok(false)
             }
-            return Ok(false);
         }
-
-        if self.trust_host_key {
-            if let Ok(mut guard) = self.accepted_key.lock() {
-                *guard = Some((key_type, fingerprint));
-            }
-            return Ok(true);
-        }
-
-        if let Ok(mut guard) = self.prompt_info.lock() {
-            *guard = Some(HostKeyPromptInfo {
-                host: self.host.clone(),
-                port: self.port,
-                key_type,
-                fingerprint,
-                mismatch: false,
-                previous_fingerprint: None,
-            });
-        }
-        Ok(false)
     }
 }
 
@@ -184,10 +178,11 @@ pub async fn connect_ssh_terminal(
     port: u16,
     auth: &ResolvedAuth,
     known_hosts: Vec<KnownHost>,
-    trust_host_key: bool,
+    expected_fingerprint: Option<String>,
     cols: u32,
     rows: u32,
     initial_dir: Option<String>,
+    ssh_terminals: Arc<AsyncRwLock<HashMap<String, SshTerminalHandle>>>,
     ssh_log_files: Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
 ) -> AppResult<SshConnectOutcome> {
     let prompt_info = Arc::new(Mutex::new(None));
@@ -197,7 +192,7 @@ pub async fn connect_ssh_terminal(
         host: host.to_string(),
         port,
         known_hosts,
-        trust_host_key,
+        expected_fingerprint,
         prompt_info: prompt_info.clone(),
         accepted_key: accepted_key.clone(),
     };
@@ -208,7 +203,12 @@ pub async fn connect_ssh_terminal(
         ..Default::default()
     };
 
-    let connect_result = client::connect(Arc::new(config), (host, port), handler).await;
+    let connect_result = tokio::time::timeout(
+        Duration::from_secs(30),
+        client::connect(Arc::new(config), (host, port), handler),
+    )
+    .await
+    .map_err(|_| AppError::Protocol("SSH connection timed out after 30s".into()))?;
     let mut session = match connect_result {
         Ok(h) => h,
         Err(e) => {
@@ -284,13 +284,12 @@ pub async fn connect_ssh_terminal(
         .map_err(|e| AppError::Protocol(format!("Failed to start remote shell: {e}")))?;
 
     // If launched from an SFTP tab with a specific remote directory, cd into it
-    if let Some(dir) = initial_dir.filter(|d| !d.trim().is_empty() && d.trim() != "/") {
-        let escaped = dir.replace('\'', "'\\''");
-        let cmd = format!("cd '{escaped}'\n");
+    if let Some(cmd) = build_initial_cd_command(initial_dir.as_deref()) {
         let _ = channel.data(cmd.as_bytes()).await;
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<SshCommand>();
+    let tx_weak = tx.downgrade();
     let tab_id_task = tab_id.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -349,6 +348,28 @@ pub async fn connect_ssh_terminal(
             }
         };
 
+        // Clean up terminal handle and log file if this handle is still the active one for the tab
+        let removed_self = {
+            let mut map = ssh_terminals.write().await;
+            if let Some(strong_tx) = tx_weak.upgrade() {
+                if map
+                    .get(&tab_id_task)
+                    .map(|h| h.tx.same_channel(&strong_tx))
+                    .unwrap_or(false)
+                {
+                    map.remove(&tab_id_task);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if removed_self {
+            ssh_log_files.write().await.remove(&tab_id_task);
+        }
+
         if let Some(reason) = close_reason {
             let _ = app.emit(
                 "ssh-closed",
@@ -365,4 +386,29 @@ pub async fn connect_ssh_terminal(
         handle: SshTerminalHandle { tx },
         newly_trusted_key,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_initial_cd_command_escapes_quotes_and_rejects_control_chars() {
+        assert_eq!(build_initial_cd_command(None), None);
+        assert_eq!(build_initial_cd_command(Some("/")), None);
+        assert_eq!(build_initial_cd_command(Some("  ")), None);
+        assert_eq!(
+            build_initial_cd_command(Some("/var/www/my'site")),
+            Some("cd '/var/www/my'\\''site'\n".to_string())
+        );
+        assert_eq!(build_initial_cd_command(Some("/tmp\nrm -rf /")), None);
+        assert_eq!(build_initial_cd_command(Some("/tmp\rwhoami")), None);
+        assert_eq!(build_initial_cd_command(Some("/tmp\0evil")), None);
+    }
+
+    #[test]
+    fn strip_ansi_bytes_removes_csi_osc_and_cr() {
+        let raw = b"\x1b[32mhello\x1b[0m \x1b]0;title\x07world\r\nline2\x1b]0;st\x1b\\!";
+        assert_eq!(strip_ansi_bytes(raw), b"hello world\nline2!");
+    }
 }

@@ -1,62 +1,16 @@
-use chrono::Utc;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex as AsyncMutex;
-use uuid::Uuid;
 
-use crate::crypto;
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    AuthType, ConnectRequest, ConnectResponse, ConnectStatus, CredentialSecretPayload, FileEntry,
-    KnownHost, Protocol,
+    ConnectRequest, ConnectResponse, ConnectStatus, FileEntry, KnownHost, Protocol,
 };
 use crate::protocols::ftp::FtpClient;
 use crate::protocols::sftp::{SftpClient, SftpConnectOutcome};
-use crate::protocols::{FileTransferClient, LogEmitter, ResolvedAuth};
+use crate::protocols::{FileTransferClient, LogEmitter};
 use crate::state::AppState;
-
-fn resolve_auth(state: &AppState, req: &ConnectRequest) -> AppResult<Option<ResolvedAuth>> {
-    // 1. Explicit on-the-fly credentials take precedence
-    if let Some(ref user) = req.username {
-        return Ok(Some(ResolvedAuth {
-            username: user.clone(),
-            auth_type: AuthType::Password,
-            password: req.password.clone(),
-            private_key: None,
-            passphrase: None,
-        }));
-    }
-
-    // 2. Stored credential from SQLite vault
-    if let Some(ref cred_id) = req.credential_id {
-        let key = state.get_master_key()?;
-        let conn = state
-            .db
-            .lock()
-            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-        let row = db::get_credential_row(&conn, cred_id)?
-            .ok_or_else(|| AppError::NotFound(format!("Credential {cred_id}")))?;
-        let plain = crypto::decrypt(&key, &row.encrypted_secret, &row.nonce)?;
-        let payload: CredentialSecretPayload = serde_json::from_slice(&plain)?;
-
-        // If password auth has no saved password (user chose not to save it), prompt on the fly
-        if row.auth_type == AuthType::Password && payload.password.is_none() {
-            return Ok(None);
-        }
-
-        return Ok(Some(ResolvedAuth {
-            username: row.username,
-            auth_type: row.auth_type,
-            password: payload.password.clone(),
-            private_key: payload.private_key.clone(),
-            passphrase: payload.passphrase.clone(),
-        }));
-    }
-
-    // 3. No credential provided -> prompt user (modal supports Anonymous for FTP/FTPS)
-    Ok(None)
-}
 
 #[tauri::command]
 pub async fn connect_session(
@@ -66,11 +20,22 @@ pub async fn connect_session(
 ) -> AppResult<ConnectResponse> {
     if request.protocol == Protocol::Ssh {
         return Err(AppError::Validation(
-            "SSH terminal sessions will be enabled in Phase 4.5.".into(),
+            "Use ssh_connect for SSH terminal sessions.".into(),
         ));
     }
+    if request.host.trim().is_empty() {
+        return Err(AppError::Validation("Host cannot be empty".into()));
+    }
+    if request.port == 0 {
+        return Err(AppError::Validation("Port must be between 1 and 65535".into()));
+    }
 
-    let Some(auth) = resolve_auth(&state, &request)? else {
+    let Some(auth) = state.resolve_auth(
+        request.credential_id.as_deref(),
+        request.username.as_deref(),
+        request.password.as_deref(),
+    )?
+    else {
         return Ok(ConnectResponse {
             status: ConnectStatus::AuthRequired,
             current_dir: None,
@@ -79,6 +44,7 @@ pub async fn connect_session(
     };
 
     let logger = LogEmitter::new(app, request.tab_id.clone());
+    let connect_gen = state.begin_tab_connect(&request.tab_id);
 
     // Disconnect any previous connection on this tab
     if let Some(prev) = state.connections.write().await.remove(&request.tab_id) {
@@ -101,23 +67,14 @@ pub async fn connect_session(
             Box::new(ftp)
         }
         Protocol::Sftp => {
-            let known_hosts = {
-                let conn = state
-                    .db
-                    .lock()
-                    .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-                db::list_known_hosts(&conn)?
-                    .into_iter()
-                    .filter(|kh| kh.host == request.host && kh.port == request.port)
-                    .collect::<Vec<_>>()
-            };
+            let known_hosts = state.list_known_hosts_for(&request.host, request.port)?;
 
             let outcome = SftpClient::connect(
                 &request.host,
                 request.port,
                 &auth,
                 known_hosts,
-                request.trust_host_key.unwrap_or(false),
+                request.expected_host_key_fingerprint.clone(),
                 logger.clone(),
             )
             .await?;
@@ -135,18 +92,11 @@ pub async fn connect_session(
                     newly_trusted_key,
                 } => {
                     if let Some((key_type, fingerprint)) = newly_trusted_key {
-                        let conn = state
-                            .db
-                            .lock()
-                            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-                        db::upsert_known_host(
-                            &conn,
-                            &Uuid::new_v4().to_string(),
+                        state.record_known_host(
                             &request.host,
                             request.port,
                             &key_type,
                             &fingerprint,
-                            &Utc::now().to_rfc3339(),
                         )?;
                     }
                     Box::new(client)
@@ -166,11 +116,21 @@ pub async fn connect_session(
         None => client.pwd().await.unwrap_or_else(|_| "/".to_string()),
     };
 
-    state
+    // If the tab was closed or superseded while connecting, close immediately instead of leaking
+    if !state.is_tab_generation_current(&request.tab_id, connect_gen) {
+        let _ = client.disconnect().await;
+        return Err(AppError::NotConnected("Connection cancelled".into()));
+    }
+
+    let replaced = state
         .connections
         .write()
         .await
         .insert(request.tab_id, Arc::new(AsyncMutex::new(client)));
+    if let Some(prev) = replaced {
+        let mut guard = prev.lock().await;
+        let _ = guard.disconnect().await;
+    }
 
     Ok(ConnectResponse {
         status: ConnectStatus::Connected,
@@ -180,10 +140,19 @@ pub async fn connect_session(
 }
 
 #[tauri::command]
-pub async fn disconnect_session(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
+pub async fn disconnect_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> AppResult<()> {
+    state.invalidate_tab(&tab_id);
+    state.transfers.cancel_for_tab(&app, &tab_id);
     if let Some(conn) = state.connections.write().await.remove(&tab_id) {
-        let mut client = conn.lock().await;
-        client.disconnect().await?;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let mut client = conn.lock().await;
+            let _ = client.disconnect().await;
+        })
+        .await;
     }
     Ok(())
 }

@@ -247,7 +247,7 @@ export interface ConnectRequest {
   remote_initial_path?: string | null;
   passive_mode?: boolean;
   accept_invalid_certs?: boolean;
-  trust_host_key?: boolean;
+  expected_host_key_fingerprint?: string | null;
 }
 
 export type TransferDirection = "upload" | "download";
@@ -315,7 +315,7 @@ export interface SshConnectRequest {
   initial_dir?: string | null;
   cols?: number;
   rows?: number;
-  trust_host_key?: boolean;
+  expected_host_key_fingerprint?: string | null;
 }
 
 export interface SshDataEvent {
@@ -333,18 +333,7 @@ export interface BackendError {
   message?: string;
 }
 
-export function defaultPortForProtocol(protocol: Protocol): number {
-  switch (protocol) {
-    case "ftp":
-    case "ftps_explicit":
-      return 21;
-    case "ftps_implicit":
-      return 990;
-    case "sftp":
-    case "ssh":
-      return 22;
-  }
-}
+export { defaultPortForProtocol } from "../utils/protocols";
 
 export function extractErrorMessage(err: unknown): string {
   if (typeof err === "string") return err;

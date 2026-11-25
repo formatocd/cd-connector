@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { KeyRound, Plus, Pencil, Trash2, Upload, X, ShieldCheck } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
@@ -12,7 +13,12 @@ interface CredentialsModalProps {
 
 export function CredentialsModal({ onClose }: CredentialsModalProps) {
   const { t } = useTranslation();
-  const { credentials: allCredentials, refreshVaultData } = useAppStore();
+  const { credentials: allCredentials, refreshVaultData } = useAppStore(
+    useShallow((s) => ({
+      credentials: s.credentials,
+      refreshVaultData: s.refreshVaultData,
+    }))
+  );
   const credentials = allCredentials.filter((c) => c.reusable);
 
   const [editing, setEditing] = useState<CredentialSummary | null>(null);

@@ -31,6 +31,10 @@ const DEFAULT_CONFIG: AppConfig = {
 
 export type SplitDirection = "none" | "horizontal" | "vertical";
 
+export interface SessionLogEntry extends SessionLogEvent {
+  id: number;
+}
+
 interface AppStoreState {
   loading: boolean;
   security: SecurityStatus;
@@ -43,7 +47,7 @@ interface AppStoreState {
   secondaryTabId: string | null;
   splitDirection: SplitDirection;
   focusedPane: 1 | 2;
-  sessionLogs: Record<string, SessionLogEvent[]>;
+  sessionLogs: Record<string, SessionLogEntry[]>;
   transfers: TransferItem[];
   conflictQueue: ConflictPromptEvent[];
 
@@ -58,9 +62,7 @@ interface AppStoreState {
   setActiveTab: (tabId: string) => void;
   reorderTabs: (sourceTabId: string, targetTabId: string, position: "before" | "after") => void;
   setSplitDirection: (dir: SplitDirection) => void;
-  setSecondaryTab: (tabId: string | null) => void;
   setFocusedPane: (pane: 1 | 2) => void;
-  openTabInSplit: (tabId: string) => void;
   appendSessionLog: (event: SessionLogEvent) => void;
   clearSessionLogs: (tabId: string) => void;
   setTransfers: (items: TransferItem[]) => void;
@@ -69,6 +71,7 @@ interface AppStoreState {
 }
 
 const MAX_LOGS_PER_TAB = 500;
+let nextLogEntryId = 1;
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   loading: true,
@@ -115,15 +118,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setSecurity: (security) => {
     set({ security });
     if (!security.unlocked) {
+      // Screen-lock mode: clear sensitive vault metadata but preserve active tabs & connections
       set({
         folders: [],
         sessions: [],
         credentials: [],
-        tabs: [],
-        activeTabId: null,
-        secondaryTabId: null,
-        splitDirection: "none",
-        focusedPane: 1,
       });
     }
   },
@@ -165,9 +164,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   closeTab: (tabId) => {
-    api.disconnectSession(tabId).catch(() => {});
-    api.sshDisconnect(tabId).catch(() => {});
-    api.sshStopLog(tabId).catch(() => {});
+    const targetTab = get().tabs.find((t) => t.tabId === tabId);
+    if (targetTab?.session.protocol === "ssh") {
+      api.sshDisconnect(tabId).catch(() => {});
+      api.sshStopLog(tabId).catch(() => {});
+    } else if (targetTab) {
+      api.disconnectSession(tabId).catch(() => {});
+    }
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.tabId === tabId);
       const nextTabs = state.tabs.filter((t) => t.tabId !== tabId);
@@ -272,34 +275,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       };
     }),
 
-  setSecondaryTab: (tabId) => set({ secondaryTabId: tabId }),
-
   setFocusedPane: (pane) => set({ focusedPane: pane }),
 
-  openTabInSplit: (tabId) =>
-    set((state) => {
-      if (tabId === state.activeTabId) {
-        const other = state.tabs.find((t) => t.tabId !== tabId)?.tabId ?? null;
-        return {
-          splitDirection: state.splitDirection === "none" ? "horizontal" : state.splitDirection,
-          secondaryTabId: other,
-          focusedPane: 2,
-        };
-      }
-      return {
-        splitDirection: state.splitDirection === "none" ? "horizontal" : state.splitDirection,
-        secondaryTabId: tabId,
-        focusedPane: 2,
-      };
-    }),
-
   appendSessionLog: (event) => {
+    const entry: SessionLogEntry = { ...event, id: nextLogEntryId++ };
     set((state) => {
       const prev = state.sessionLogs[event.tab_id] ?? [];
       const next =
         prev.length >= MAX_LOGS_PER_TAB
-          ? [...prev.slice(prev.length - MAX_LOGS_PER_TAB + 1), event]
-          : [...prev, event];
+          ? [...prev.slice(prev.length - MAX_LOGS_PER_TAB + 1), entry]
+          : [...prev, entry];
       return {
         sessionLogs: {
           ...state.sessionLogs,

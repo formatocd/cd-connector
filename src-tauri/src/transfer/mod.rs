@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Instant, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{oneshot, Notify, RwLock as AsyncRwLock};
+use tokio::sync::{oneshot, RwLock as AsyncRwLock};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -31,7 +31,6 @@ pub struct TransferManager {
     max_concurrent: AtomicUsize,
     upload_limiter: Arc<BandwidthLimiter>,
     download_limiter: Arc<BandwidthLimiter>,
-    notify: Arc<Notify>,
 }
 
 impl TransferManager {
@@ -49,21 +48,22 @@ impl TransferManager {
             max_concurrent: AtomicUsize::new(max_concurrent.max(1) as usize),
             upload_limiter: Arc::new(BandwidthLimiter::new(upload_limit_kbps)),
             download_limiter: Arc::new(BandwidthLimiter::new(download_limit_kbps)),
-            notify: Arc::new(Notify::new()),
         })
     }
 
     pub fn update_limits(
-        &self,
+        self: &Arc<Self>,
+        app: AppHandle,
+        connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
         max_concurrent: u32,
         upload_limit_kbps: u64,
         download_limit_kbps: u64,
     ) {
         self.max_concurrent
-            .store(max_concurrent.max(1) as usize, Ordering::Relaxed);
+            .store(max_concurrent.max(1) as usize, Ordering::Release);
         self.upload_limiter.set_limit_kbps(upload_limit_kbps);
         self.download_limiter.set_limit_kbps(download_limit_kbps);
-        self.notify.notify_one();
+        self.dispatch_next(app, connections);
     }
 
     pub fn list(&self) -> Vec<TransferItem> {
@@ -297,6 +297,46 @@ impl TransferManager {
         self.dispatch_next(app, connections);
     }
 
+    pub fn cancel_for_tab(&self, app: &AppHandle, tab_id: &str) {
+        let mut target_ids = Vec::new();
+        if let Ok(mut list) = self.items.lock() {
+            for item in list.iter_mut() {
+                if item.tab_id == tab_id
+                    && matches!(
+                        item.status,
+                        TransferStatus::Queued
+                            | TransferStatus::Paused
+                            | TransferStatus::WaitingConflict
+                            | TransferStatus::InProgress
+                    )
+                {
+                    target_ids.push(item.id.clone());
+                    item.status = TransferStatus::Cancelled;
+                    item.speed_bps = 0;
+                    item.eta_seconds = None;
+                }
+            }
+        }
+        if target_ids.is_empty() {
+            return;
+        }
+        if let Ok(controls) = self.controls.lock() {
+            for id in &target_ids {
+                if let Some(ctrl) = controls.get(id) {
+                    ctrl.cancel.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        if let Ok(mut waiters) = self.conflict_waiters.lock() {
+            for id in &target_ids {
+                if let Some(tx) = waiters.remove(id) {
+                    let _ = tx.send((ConflictAction::Skip, false));
+                }
+            }
+        }
+        self.emit_queue(app);
+    }
+
     pub fn cancel_all(&self, app: &AppHandle) {
         if let Ok(controls) = self.controls.lock() {
             for ctrl in controls.values() {
@@ -369,19 +409,19 @@ impl TransferManager {
         app: AppHandle,
         connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
     ) {
-        let max = self.max_concurrent.load(Ordering::Relaxed);
+        let max = self.max_concurrent.load(Ordering::Acquire);
         loop {
-            let current = self.active_count.load(Ordering::Relaxed);
-            if current >= max {
-                break;
-            }
             let next_item = {
                 let Ok(mut list) = self.items.lock() else {
                     break;
                 };
+                if self.active_count.load(Ordering::Acquire) >= max {
+                    break;
+                }
                 if let Some(item) = list.iter_mut().find(|i| i.status == TransferStatus::Queued) {
                     item.status = TransferStatus::InProgress;
                     item.error = None;
+                    self.active_count.fetch_add(1, Ordering::AcqRel);
                     Some(item.clone())
                 } else {
                     None
@@ -390,7 +430,7 @@ impl TransferManager {
 
             let Some(item) = next_item else {
                 // If nothing queued and nothing active, reset batch conflict policy
-                if self.active_count.load(Ordering::Relaxed) == 0 {
+                if self.active_count.load(Ordering::Acquire) == 0 {
                     if let Ok(mut policy) = self.batch_policy.lock() {
                         *policy = None;
                     }
@@ -398,7 +438,6 @@ impl TransferManager {
                 break;
             };
 
-            self.active_count.fetch_add(1, Ordering::Relaxed);
             let mgr = Arc::clone(self);
             let app_clone = app.clone();
             let conns_clone = Arc::clone(&connections);
@@ -407,7 +446,7 @@ impl TransferManager {
             tauri::async_runtime::spawn(async move {
                 mgr.run_transfer(app_clone.clone(), conns_clone.clone(), item)
                     .await;
-                mgr.active_count.fetch_sub(1, Ordering::Relaxed);
+                mgr.active_count.fetch_sub(1, Ordering::AcqRel);
                 mgr.emit_queue(&app_clone);
                 mgr.dispatch_next(app_clone, conns_clone);
             });
@@ -827,6 +866,28 @@ fn expand_local_dir<'a>(
     })
 }
 
+fn validate_remote_entry_name(name: &str) -> AppResult<&str> {
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return Err(AppError::Validation(format!(
+            "Unsafe remote entry name rejected: {name:?}"
+        )));
+    }
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(_)), None) => Ok(name),
+        _ => Err(AppError::Validation(format!(
+            "Unsafe remote entry name rejected: {name:?}"
+        ))),
+    }
+}
+
 fn expand_remote_dir<'a>(
     client: &'a SharedClient,
     tab_id: &'a str,
@@ -841,7 +902,8 @@ fn expand_remote_dir<'a>(
             c.list_dir(remote_dir).await?
         };
         for entry in entries {
-            let child_local = local_dir.join(&entry.name);
+            let safe_name = validate_remote_entry_name(&entry.name)?;
+            let child_local = local_dir.join(safe_name);
             if entry.is_dir {
                 expand_remote_dir(client, tab_id, &entry.path, &child_local, out).await?;
             } else {
@@ -863,4 +925,33 @@ fn expand_remote_dir<'a>(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_remote_entry_name_accepts_normal_names() {
+        assert_eq!(validate_remote_entry_name("report.pdf").unwrap(), "report.pdf");
+        assert_eq!(validate_remote_entry_name(".env").unwrap(), ".env");
+        assert_eq!(validate_remote_entry_name("my file (1).txt").unwrap(), "my file (1).txt");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_traversal_and_separators() {
+        for bad in ["", "   ", ".", "..", "../secret", "a/b", "a\\b", "/etc/passwd", "a\0b"] {
+            assert!(
+                validate_remote_entry_name(bad).is_err(),
+                "expected rejection for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_stem_ext_handles_common_cases() {
+        assert_eq!(split_stem_ext("archive.tar.gz"), ("archive.tar", ".gz"));
+        assert_eq!(split_stem_ext("README"), ("README", ""));
+        assert_eq!(split_stem_ext(".bashrc"), (".bashrc", ""));
+    }
 }

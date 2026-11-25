@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   FolderTree,
@@ -28,6 +29,7 @@ interface SessionModalProps {
   sessionKind: SessionKind;
   initialFolderId?: string | null;
   session?: Session | null;
+  initialAuth?: { username?: string; password?: string } | null;
   onClose: () => void;
 }
 
@@ -38,10 +40,18 @@ export function SessionModal({
   sessionKind,
   initialFolderId = null,
   session = null,
+  initialAuth = null,
   onClose,
 }: SessionModalProps) {
   const { t } = useTranslation();
-  const { folders, credentials, refreshVaultData, openSessionTab } = useAppStore();
+  const { folders, credentials, refreshVaultData, openSessionTab } = useAppStore(
+    useShallow((s) => ({
+      folders: s.folders,
+      credentials: s.credentials,
+      refreshVaultData: s.refreshVaultData,
+      openSessionTab: s.openSessionTab,
+    }))
+  );
 
   const isSsh = sessionKind === "ssh";
   const defaultProtocol: Protocol = isSsh
@@ -87,12 +97,12 @@ export function SessionModal({
     existingLinkedCred?.reusable ? existingLinkedCred.id : ""
   );
   const [manualUsername, setManualUsername] = useState(
-    sourcePrivateCred ? sourcePrivateCred.username : ""
+    sourcePrivateCred ? sourcePrivateCred.username : initialAuth?.username ?? ""
   );
   const [manualAuthType, setManualAuthType] = useState<AuthType>(
     sourcePrivateCred ? sourcePrivateCred.auth_type : "password"
   );
-  const [manualPassword, setManualPassword] = useState("");
+  const [manualPassword, setManualPassword] = useState(initialAuth?.password ?? "");
   const [rememberPassword, setRememberPassword] = useState<boolean>(
     sourcePrivateCred ? sourcePrivateCred.has_secret : true
   );
@@ -450,7 +460,9 @@ export function SessionModal({
                 min={1}
                 max={65535}
                 value={port}
-                onChange={(e) => setPort(Number(e.target.value) || 22)}
+                onChange={(e) =>
+                  setPort(Number(e.target.value) || defaultPortForProtocol(protocol))
+                }
                 className="w-full px-2.5 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>

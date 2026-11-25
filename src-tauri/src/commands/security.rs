@@ -9,11 +9,19 @@ use crate::state::AppState;
 
 #[tauri::command]
 pub fn get_security_status(state: State<'_, AppState>) -> AppResult<SecurityStatus> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-    let mode = db::get_security_mode(&conn)?;
+    let (mode, verification_token) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+        let mode = db::get_security_mode(&conn)?;
+        let token = if mode == Some(SecurityMode::Transparent) && !state.is_unlocked() {
+            db::get_config_value(&conn, "verification_hash")?
+        } else {
+            None
+        };
+        (mode, token)
+    };
 
     match mode {
         None => Ok(SecurityStatus {
@@ -24,7 +32,7 @@ pub fn get_security_status(state: State<'_, AppState>) -> AppResult<SecurityStat
         Some(SecurityMode::Transparent) => {
             if !state.is_unlocked() {
                 let key = crypto::load_transparent_key(&state.app_data_dir)?;
-                if let Some(token) = db::get_config_value(&conn, "verification_hash")? {
+                if let Some(token) = verification_token {
                     if !crypto::verify_key(&key, &token)? {
                         return Err(AppError::Crypto(
                             "Transparent vault key verification failed".into(),
@@ -53,18 +61,20 @@ pub fn setup_security_mode(
     mode: SecurityMode,
     master_password: Option<String>,
 ) -> AppResult<SecurityStatus> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
-
-    if db::get_security_mode(&conn)?.is_some() {
-        return Err(AppError::Validation(
-            "Security mode is already initialized. Use change_security_mode instead.".into(),
-        ));
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+        if db::get_security_mode(&conn)?.is_some() {
+            return Err(AppError::Validation(
+                "Security mode is already initialized. Use change_security_mode instead.".into(),
+            ));
+        }
     }
 
-    match mode {
+    // Derive/generate keys and perform disk I/O outside the SQLite lock
+    let (key, salt_b64, verification) = match mode {
         SecurityMode::MasterPassword => {
             let password = master_password.unwrap_or_default();
             if password.len() < 4 {
@@ -75,23 +85,36 @@ pub fn setup_security_mode(
             let salt = crypto::generate_salt();
             let key = crypto::derive_key(&password, &salt)?;
             let verification = crypto::create_verification_token(&key)?;
-
-            db::set_config_value(&conn, "security_mode", mode.as_str())?;
-            db::set_config_value(&conn, "salt", &B64.encode(salt))?;
-            db::set_config_value(&conn, "verification_hash", &verification)?;
-            state.set_master_key(Some(key))?;
+            (key, Some(B64.encode(salt)), verification)
         }
         SecurityMode::Transparent => {
             let key = MasterKey::random();
             let verification = crypto::create_verification_token(&key)?;
             crypto::save_transparent_key(&state.app_data_dir, &key)?;
-
-            db::set_config_value(&conn, "security_mode", mode.as_str())?;
-            db::delete_config_value(&conn, "salt")?;
-            db::set_config_value(&conn, "verification_hash", &verification)?;
-            state.set_master_key(Some(key))?;
+            (key, None, verification)
         }
+    };
+
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+        if db::get_security_mode(&conn)?.is_some() {
+            return Err(AppError::Validation(
+                "Security mode is already initialized. Use change_security_mode instead.".into(),
+            ));
+        }
+        db::set_config_value(&conn, "security_mode", mode.as_str())?;
+        if let Some(ref salt) = salt_b64 {
+            db::set_config_value(&conn, "salt", salt)?;
+        } else {
+            db::delete_config_value(&conn, "salt")?;
+        }
+        db::set_config_value(&conn, "verification_hash", &verification)?;
     }
+
+    state.set_master_key(Some(key))?;
 
     Ok(SecurityStatus {
         initialized: true,
@@ -102,22 +125,25 @@ pub fn setup_security_mode(
 
 #[tauri::command]
 pub fn unlock_vault(state: State<'_, AppState>, password: String) -> AppResult<SecurityStatus> {
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+    let (salt_b64, verification) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
-    let mode = db::get_security_mode(&conn)?.ok_or(AppError::SecurityNotInitialized)?;
-    if mode != SecurityMode::MasterPassword {
-        return Err(AppError::Validation(
-            "Vault does not use master password mode".into(),
-        ));
-    }
+        let mode = db::get_security_mode(&conn)?.ok_or(AppError::SecurityNotInitialized)?;
+        if mode != SecurityMode::MasterPassword {
+            return Err(AppError::Validation(
+                "Vault does not use master password mode".into(),
+            ));
+        }
 
-    let salt_b64 = db::get_config_value(&conn, "salt")?
-        .ok_or_else(|| AppError::Crypto("Missing salt in configuration".into()))?;
-    let verification = db::get_config_value(&conn, "verification_hash")?
-        .ok_or_else(|| AppError::Crypto("Missing verification token".into()))?;
+        let salt_b64 = db::get_config_value(&conn, "salt")?
+            .ok_or_else(|| AppError::Crypto("Missing salt in configuration".into()))?;
+        let verification = db::get_config_value(&conn, "verification_hash")?
+            .ok_or_else(|| AppError::Crypto("Missing verification token".into()))?;
+        (salt_b64, verification)
+    };
 
     let salt = B64
         .decode(&salt_b64)
@@ -161,24 +187,34 @@ pub fn change_security_mode(
     new_password: Option<String>,
 ) -> AppResult<SecurityStatus> {
     let old_key = state.get_master_key()?;
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
-    let current_mode = db::get_security_mode(&conn)?.ok_or(AppError::SecurityNotInitialized)?;
+    // Read current security metadata under a short lock before running Argon2id
+    let (current_mode, current_salt_b64, current_verification) = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+        let current_mode =
+            db::get_security_mode(&conn)?.ok_or(AppError::SecurityNotInitialized)?;
+        let (salt_b64, verification) = if current_mode == SecurityMode::MasterPassword {
+            let s = db::get_config_value(&conn, "salt")?
+                .ok_or_else(|| AppError::Crypto("Missing salt".into()))?;
+            let v = db::get_config_value(&conn, "verification_hash")?
+                .ok_or_else(|| AppError::Crypto("Missing verification token".into()))?;
+            (Some(s), Some(v))
+        } else {
+            (None, None)
+        };
+        (current_mode, salt_b64, verification)
+    };
 
     if current_mode == SecurityMode::MasterPassword {
         let pwd = current_password.ok_or(AppError::InvalidPassword)?;
-        let salt_b64 = db::get_config_value(&conn, "salt")?
-            .ok_or_else(|| AppError::Crypto("Missing salt".into()))?;
-        let verification = db::get_config_value(&conn, "verification_hash")?
-            .ok_or_else(|| AppError::Crypto("Missing verification token".into()))?;
         let salt = B64
-            .decode(&salt_b64)
+            .decode(current_salt_b64.as_deref().unwrap_or_default())
             .map_err(|e| AppError::Crypto(format!("Invalid salt: {e}")))?;
         let check_key = crypto::derive_key(&pwd, &salt)?;
-        if !crypto::verify_key(&check_key, &verification)? {
+        if !crypto::verify_key(&check_key, current_verification.as_deref().unwrap_or_default())? {
             return Err(AppError::InvalidPassword);
         }
     }
@@ -199,29 +235,36 @@ pub fn change_security_mode(
     };
 
     let new_verification = crypto::create_verification_token(&new_key)?;
-    let rows = db::list_credential_rows(&conn)?;
 
-    let tx = conn.transaction()?;
-    for mut row in rows {
-        let plaintext = crypto::decrypt(&old_key, &row.encrypted_secret, &row.nonce)?;
-        let (new_ct, new_nonce) = crypto::encrypt(&new_key, &plaintext)?;
-        row.encrypted_secret = new_ct;
-        row.nonce = new_nonce;
-        db::update_credential_row(&tx, &row)?;
-    }
+    {
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
+        let rows = db::list_credential_rows(&conn)?;
 
-    db::set_config_value(&tx, "security_mode", target_mode.as_str())?;
-    db::set_config_value(&tx, "verification_hash", &new_verification)?;
-    if let Some(ref salt_b64) = new_salt_b64 {
-        db::set_config_value(&tx, "salt", salt_b64)?;
-    } else {
-        db::delete_config_value(&tx, "salt")?;
-    }
+        let tx = conn.transaction()?;
+        for mut row in rows {
+            let plaintext = crypto::decrypt(&old_key, &row.encrypted_secret, &row.nonce)?;
+            let (new_ct, new_nonce) = crypto::encrypt(&new_key, &plaintext)?;
+            row.encrypted_secret = new_ct;
+            row.nonce = new_nonce;
+            db::update_credential_row(&tx, &row)?;
+        }
 
-    if target_mode == SecurityMode::Transparent {
-        crypto::save_transparent_key(&state.app_data_dir, &new_key)?;
+        db::set_config_value(&tx, "security_mode", target_mode.as_str())?;
+        db::set_config_value(&tx, "verification_hash", &new_verification)?;
+        if let Some(ref salt_b64) = new_salt_b64 {
+            db::set_config_value(&tx, "salt", salt_b64)?;
+        } else {
+            db::delete_config_value(&tx, "salt")?;
+        }
+
+        if target_mode == SecurityMode::Transparent {
+            crypto::save_transparent_key(&state.app_data_dir, &new_key)?;
+        }
+        tx.commit()?;
     }
-    tx.commit()?;
 
     if target_mode == SecurityMode::MasterPassword {
         let _ = crypto::remove_transparent_key(&state.app_data_dir);

@@ -1,65 +1,13 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, Pencil } from "lucide-react";
+import { parseBreadcrumbs } from "../utils/paths";
 
 interface BreadcrumbBarProps {
   path: string;
   isLocal: boolean;
   disabled?: boolean;
   onNavigate: (targetPath: string) => void;
-}
-
-interface Crumb {
-  label: string;
-  path: string;
-}
-
-function parseBreadcrumbs(path: string, isLocal: boolean): Crumb[] {
-  if (!path) return [{ label: "/", path: "/" }];
-
-  // Windows UNC network path e.g. \\server\share\folder
-  if (isLocal && /^(\\\\|\/\/)[^\\/]+[\\/]+[^\\/]+/.test(path)) {
-    const normalized = path.replace(/\//g, "\\");
-    const parts = normalized.replace(/^\\+/, "").split("\\").filter(Boolean);
-    if (parts.length >= 2) {
-      const root = `\\\\${parts[0]}\\${parts[1]}`;
-      const crumbs: Crumb[] = [{ label: root, path: root }];
-      for (let i = 2; i < parts.length; i++) {
-        crumbs.push({
-          label: parts[i],
-          path: `${root}\\${parts.slice(2, i + 1).join("\\")}`,
-        });
-      }
-      return crumbs;
-    }
-  }
-
-  // Windows path e.g. C:\Users\Carlos
-  if (isLocal && /^[a-zA-Z]:/.test(path)) {
-    const normalized = path.replace(/\//g, "\\");
-    const parts = normalized.split("\\").filter(Boolean);
-    const crumbs: Crumb[] = [];
-    parts.forEach((part, idx) => {
-      if (idx === 0) {
-        crumbs.push({ label: `${part}\\`, path: `${part}\\` });
-      } else {
-        const full = `${parts[0]}\\${parts.slice(1, idx + 1).join("\\")}`;
-        crumbs.push({ label: part, path: full });
-      }
-    });
-    return crumbs;
-  }
-
-  // POSIX / Remote path
-  const parts = path.split("/").filter(Boolean);
-  const crumbs: Crumb[] = [{ label: "/", path: "/" }];
-  parts.forEach((part, idx) => {
-    crumbs.push({
-      label: part,
-      path: `/${parts.slice(0, idx + 1).join("/")}`,
-    });
-  });
-  return crumbs;
 }
 
 export function BreadcrumbBar({

@@ -91,6 +91,10 @@ export const api = {
   // Portability
   exportData: (options: ExportOptions) =>
     invoke<string>("export_data", { options }),
+  writeBackupFile: (path: string, content: string) =>
+    invoke<void>("write_backup_file", { path, content }),
+  readBackupFile: (path: string) =>
+    invoke<string>("read_backup_file", { path }),
   previewImport: (rawJson: string, importPassword?: string) =>
     invoke<ImportPreview>("preview_import", {
       rawJson,

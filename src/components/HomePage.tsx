@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { Search, FolderTree, Clock, X } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import { AppLogo } from "./AppLogo";
@@ -13,7 +14,12 @@ interface HomePageProps {
 
 export function HomePage({ onQuickConnect }: HomePageProps) {
   const { t } = useTranslation();
-  const { sessions, openSessionTab } = useAppStore();
+  const { sessions, openSessionTab } = useAppStore(
+    useShallow((s) => ({
+      sessions: s.sessions,
+      openSessionTab: s.openSessionTab,
+    }))
+  );
   const [query, setQuery] = useState("");
 
   const trimmedQuery = query.trim().toLowerCase();

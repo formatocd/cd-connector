@@ -1,12 +1,19 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { Lock, Unlock } from "lucide-react";
 import { api } from "../services/tauri";
 import { useAppStore } from "../store/useAppStore";
+import { extractErrorMessage } from "../types";
 
 export function UnlockModal() {
   const { t } = useTranslation();
-  const { setSecurity, refreshVaultData } = useAppStore();
+  const { setSecurity, refreshVaultData } = useAppStore(
+    useShallow((s) => ({
+      setSecurity: s.setSecurity,
+      refreshVaultData: s.refreshVaultData,
+    }))
+  );
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -16,11 +23,17 @@ export function UnlockModal() {
     setError(null);
     setSubmitting(true);
     try {
-      const status = await api.unlockVault(password);
+      let status;
+      try {
+        status = await api.unlockVault(password);
+      } catch {
+        setError(t("unlock.invalid_password"));
+        return;
+      }
       setSecurity(status);
       await refreshVaultData();
-    } catch {
-      setError(t("unlock.invalid_password"));
+    } catch (err) {
+      setError(extractErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

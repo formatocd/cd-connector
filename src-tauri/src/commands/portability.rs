@@ -18,11 +18,8 @@ use crate::state::AppState;
 #[tauri::command]
 pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppResult<String> {
     let local_key = state.get_master_key()?;
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
+    // Perform Argon2id key derivation outside the SQLite mutex
     let encrypted = options.include_secrets;
     let (export_key, salt_b64, verification_token) = if encrypted {
         let pwd = options.export_password.unwrap_or_default();
@@ -38,6 +35,11 @@ pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppRes
     } else {
         (None, None, None)
     };
+
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
     let folders = db::list_folders(&conn)?
         .into_iter()
@@ -655,4 +657,36 @@ pub fn setup_from_json(
         mode: Some(mode),
         unlocked: true,
     })
+}
+
+const MAX_BACKUP_FILE_BYTES: u64 = 50 * 1024 * 1024; // 50 MiB
+
+#[tauri::command]
+pub fn write_backup_file(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    let _ = state.get_master_key()?;
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Backup file path cannot be empty".into()));
+    }
+    std::fs::write(trimmed, content)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_backup_file(path: String) -> AppResult<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Backup file path cannot be empty".into()));
+    }
+    let meta = std::fs::metadata(trimmed)?;
+    if meta.len() > MAX_BACKUP_FILE_BYTES {
+        return Err(AppError::Validation(
+            "Backup file exceeds maximum allowed size (50 MiB)".into(),
+        ));
+    }
+    Ok(std::fs::read_to_string(trimmed)?)
 }

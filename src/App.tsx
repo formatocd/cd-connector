@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import {
   PanelLeft,
@@ -15,6 +16,7 @@ import {
   FolderTree,
   HelpCircle,
   Square,
+  Zap,
 } from "lucide-react";
 import { api } from "./services/tauri";
 import { useAppStore } from "./store/useAppStore";
@@ -30,8 +32,14 @@ import { SshTerminalWorkspace } from "./components/SshTerminalWorkspace";
 import { ConflictModal } from "./components/ConflictModal";
 import { HomePage } from "./components/HomePage";
 import { AboutModal } from "./components/AboutModal";
+import {
+  QuickConnectBar,
+  type QuickConnectPreset,
+  type QuickConnectSaveDraft,
+} from "./components/QuickConnectBar";
 import { resolveIconColor } from "./components/IconColorPicker";
 import { TerminalSolidIcon } from "./components/TerminalSolidIcon";
+import { readStorageItem, writeStorageItem } from "./utils/storage";
 import type {
   ConflictPromptEvent,
   Session,
@@ -65,18 +73,92 @@ export function App() {
     setTransfers,
     pushConflict,
     removeConflict,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      loading: s.loading,
+      security: s.security,
+      config: s.config,
+      tabs: s.tabs,
+      activeTabId: s.activeTabId,
+      secondaryTabId: s.secondaryTabId,
+      splitDirection: s.splitDirection,
+      focusedPane: s.focusedPane,
+      initialize: s.initialize,
+      setSecurity: s.setSecurity,
+      updateConfig: s.updateConfig,
+      setActiveTab: s.setActiveTab,
+      closeTab: s.closeTab,
+      duplicateTab: s.duplicateTab,
+      reorderTabs: s.reorderTabs,
+      setSplitDirection: s.setSplitDirection,
+      setFocusedPane: s.setFocusedPane,
+      appendSessionLog: s.appendSessionLog,
+      conflictQueue: s.conflictQueue,
+      setTransfers: s.setTransfers,
+      pushConflict: s.pushConflict,
+      removeConflict: s.removeConflict,
+    }))
+  );
 
   const [showCredentials, setShowCredentials] = useState(false);
   const [showImportExport, setShowImportExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showQuickConnect, setShowQuickConnect] = useState(
+    () => readStorageItem("cd-remote-show-quick-bar") !== "false"
+  );
+  const [quickPreset, setQuickPreset] = useState<QuickConnectPreset | null>(null);
   const [sessionModal, setSessionModal] = useState<{
     mode: "create" | "edit" | "duplicate" | "quick";
     sessionKind: SessionKind;
     folderId?: string | null;
     session?: Session | null;
+    initialAuth?: { username?: string; password?: string } | null;
   } | null>(null);
+
+  const handleSaveQuickToTree = (draft: QuickConnectSaveDraft) => {
+    const draftSession: Session = {
+      id: "",
+      folder_id: null,
+      credential_id: null,
+      name: draft.username ? `${draft.username}@${draft.host}` : draft.host,
+      protocol: draft.protocol,
+      host: draft.host,
+      port: draft.port,
+      remote_initial_path: "/",
+      local_initial_path: "",
+      passive_mode: true,
+      accept_invalid_certs: false,
+      sort_order: 0,
+      icon_color: null,
+    };
+    setSessionModal({
+      mode: "create",
+      sessionKind: draft.protocol === "ssh" ? "ssh" : "transfer",
+      folderId: null,
+      session: draftSession,
+      initialAuth: {
+        username: draft.username,
+        password: draft.password,
+      },
+    });
+  };
+
+  const toggleQuickConnectBar = () => {
+    setShowQuickConnect((prev) => {
+      const next = !prev;
+      writeStorageItem("cd-remote-show-quick-bar", String(next));
+      return next;
+    });
+  };
+
+  const focusedTabId =
+    splitDirection !== "none" && focusedPane === 2 && secondaryTabId
+      ? secondaryTabId
+      : activeTabId;
+  const focusedTab = tabs.find((tab) => tab.tabId === focusedTabId) ?? null;
+  const isTransferTabActive =
+    focusedTab !== null && focusedTab.session.protocol !== "ssh";
 
   // Tab drag-to-reorder state (pointer-event based for WebView2 compatibility)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
@@ -88,11 +170,20 @@ export function App() {
     position: "before" | "after";
   } | null>(null);
   const suppressTabClickRef = useRef(false);
+  const activePointerCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activePointerCleanupRef.current?.();
+      activePointerCleanupRef.current = null;
+    };
+  }, []);
 
   const startTabPointerDrag = (e: React.PointerEvent, tabId: string, label: string) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement | null)?.closest("button")) return;
 
+    activePointerCleanupRef.current?.();
     const startX = e.clientX;
     const startY = e.clientY;
     let active = false;
@@ -121,10 +212,17 @@ export function App() {
       setTabDropTarget(latestTarget);
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      if (activePointerCleanupRef.current === cleanup) {
+        activePointerCleanupRef.current = null;
+      }
+    };
+
+    const onUp = () => {
+      cleanup();
       if (active) {
         suppressTabClickRef.current = true;
         window.setTimeout(() => {
@@ -139,6 +237,7 @@ export function App() {
       }
     };
 
+    activePointerCleanupRef.current = cleanup;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
@@ -152,6 +251,7 @@ export function App() {
     e.preventDefault();
     const container = workspaceContainerRef.current;
     if (!container) return;
+    activePointerCleanupRef.current?.();
     const rect = container.getBoundingClientRect();
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -162,13 +262,23 @@ export function App() {
       setSplitRatio(Math.min(80, Math.max(20, ratio)));
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (activePointerCleanupRef.current === cleanup) {
+        activePointerCleanupRef.current = null;
+      }
     };
 
+    const onUp = () => {
+      cleanup();
+    };
+
+    activePointerCleanupRef.current = cleanup;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   useEffect(() => {
@@ -177,25 +287,34 @@ export function App() {
 
   // Subscribe to real-time backend session logs & transfer queue events
   useEffect(() => {
-    const unlistenLog = listen<SessionLogEvent>("session-log", (event) => {
-      appendSessionLog(event.payload);
-    });
-    const unlistenQueue = listen<TransferItem[]>("transfer-queue-updated", (event) => {
-      setTransfers(event.payload);
-    });
-    const unlistenConflict = listen<ConflictPromptEvent>("transfer-conflict", (event) => {
-      pushConflict(event.payload);
-    });
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const register = <T,>(eventName: string, handler: (payload: T) => void) => {
+      listen<T>(eventName, (event) => {
+        if (!cancelled) handler(event.payload);
+      }).then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisteners.push(fn);
+        }
+      });
+    };
+
+    register<SessionLogEvent>("session-log", appendSessionLog);
+    register<TransferItem[]>("transfer-queue-updated", setTransfers);
+    register<ConflictPromptEvent>("transfer-conflict", pushConflict);
+
     return () => {
-      unlistenLog.then((fn) => fn());
-      unlistenQueue.then((fn) => fn());
-      unlistenConflict.then((fn) => fn());
+      cancelled = true;
+      for (const fn of unlisteners) fn();
     };
   }, [appendSessionLog, setTransfers, pushConflict]);
 
   // Global panel visibility shortcuts (RF-11)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!security.unlocked) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -210,13 +329,13 @@ export function App() {
       if (key === "b") {
         e.preventDefault();
         updateConfig({ ui_show_sidebar: !config.ui_show_sidebar });
-      } else if (key === "1") {
+      } else if (isTransferTabActive && key === "1") {
         e.preventDefault();
         updateConfig({ ui_show_local_panel: !config.ui_show_local_panel });
-      } else if (key === "2") {
+      } else if (isTransferTabActive && key === "2") {
         e.preventDefault();
         updateConfig({ ui_show_command_panel: !config.ui_show_command_panel });
-      } else if (key === "3") {
+      } else if (isTransferTabActive && key === "3") {
         e.preventDefault();
         updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel });
       }
@@ -224,6 +343,8 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    security.unlocked,
+    isTransferTabActive,
     config.ui_show_sidebar,
     config.ui_show_local_panel,
     config.ui_show_command_panel,
@@ -259,17 +380,23 @@ export function App() {
     return <SetupWizard />;
   }
 
-  if (!security.unlocked) {
-    return <UnlockModal />;
-  }
-
   const handleLock = async () => {
     const status = await api.lockVault();
     setSecurity(status);
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+    <div className="h-full w-full relative">
+      {!security.unlocked && (
+        <div className="fixed inset-0 z-50">
+          <UnlockModal />
+        </div>
+      )}
+      <div
+        className={`h-full w-full flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 ${
+          !security.unlocked ? "hidden" : ""
+        }`}
+      >
       {/* Top Toolbar */}
       <header className="h-11 shrink-0 px-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -288,71 +415,69 @@ export function App() {
 
           <button
             type="button"
-            onClick={() => setSessionModal({ mode: "quick", sessionKind: "ssh" })}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer"
+            title={t("quick_bar.toggle_tooltip")}
+            onClick={toggleQuickConnectBar}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              showQuickConnect
+                ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300"
+                : "hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+            }`}
           >
-            <TerminalSolidIcon className="w-3.5 h-3.5" />
-            {t("toolbar.quick_ssh")}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSessionModal({ mode: "quick", sessionKind: "transfer" })}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer"
-          >
-            <FolderTree className="w-3.5 h-3.5" />
-            {t("toolbar.quick_transfer")}
+            <Zap className="w-3.5 h-3.5" />
+            {t("toolbar.quick_connect")}
           </button>
         </div>
 
-        {/* Panel Visibility Toggles (RF-11) */}
-        <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/70 p-0.5 rounded-lg">
-          <button
-            type="button"
-            title={t("toolbar.toggle_local")}
-            onClick={() =>
-              updateConfig({ ui_show_local_panel: !config.ui_show_local_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_local_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <Columns2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_local")}</span>
-          </button>
-          <button
-            type="button"
-            title={t("toolbar.toggle_console")}
-            onClick={() =>
-              updateConfig({ ui_show_command_panel: !config.ui_show_command_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_command_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <TerminalSolidIcon className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_console")}</span>
-          </button>
-          <button
-            type="button"
-            title={t("toolbar.toggle_queue")}
-            onClick={() =>
-              updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_queue_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_queue")}</span>
-          </button>
-        </div>
+        {/* Panel Visibility Toggles (RF-11) — only shown when active tab is a transfer session */}
+        {isTransferTabActive && (
+          <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/70 p-0.5 rounded-lg">
+            <button
+              type="button"
+              title={t("toolbar.toggle_local")}
+              onClick={() =>
+                updateConfig({ ui_show_local_panel: !config.ui_show_local_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_local_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <Columns2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_local")}</span>
+            </button>
+            <button
+              type="button"
+              title={t("toolbar.toggle_console")}
+              onClick={() =>
+                updateConfig({ ui_show_command_panel: !config.ui_show_command_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_command_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <TerminalSolidIcon className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_console")}</span>
+            </button>
+            <button
+              type="button"
+              title={t("toolbar.toggle_queue")}
+              onClick={() =>
+                updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_queue_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_queue")}</span>
+            </button>
+          </div>
+        )}
 
         {/* Right Actions */}
         <div className="flex items-center gap-1">
@@ -400,6 +525,14 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {/* Quick Connect Bar (FileZilla-style) */}
+      {showQuickConnect && (
+        <QuickConnectBar
+          preset={quickPreset}
+          onSaveToTree={handleSaveQuickToTree}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 flex">
@@ -571,9 +704,14 @@ export function App() {
           {/* Workspace Body */}
           {tabs.length === 0 ? (
             <HomePage
-              onQuickConnect={(sessionKind) =>
-                setSessionModal({ mode: "quick", sessionKind })
-              }
+              onQuickConnect={(sessionKind) => {
+                setShowQuickConnect(true);
+                writeStorageItem("cd-remote-show-quick-bar", "true");
+                setQuickPreset({
+                  protocol: sessionKind === "ssh" ? "ssh" : "sftp",
+                  nonce: Date.now(),
+                });
+              }}
             />
           ) : (
             <div
@@ -701,6 +839,7 @@ export function App() {
           sessionKind={sessionModal.sessionKind}
           initialFolderId={sessionModal.folderId}
           session={sessionModal.session}
+          initialAuth={sessionModal.initialAuth}
           onClose={() => setSessionModal(null)}
         />
       )}
@@ -719,6 +858,7 @@ export function App() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

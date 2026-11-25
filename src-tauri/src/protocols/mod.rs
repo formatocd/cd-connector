@@ -13,7 +13,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::AppResult;
-use crate::models::{AuthType, FileEntry, LogLevel, Protocol, SessionLogEvent};
+use crate::models::{AuthType, FileEntry, HostKeyPromptInfo, KnownHost, LogLevel, SessionLogEvent};
 
 pub struct BandwidthLimiter {
     limit_kbps: AtomicU64,
@@ -130,8 +130,6 @@ impl LogEmitter {
 
 #[async_trait]
 pub trait FileTransferClient: Send + Sync {
-    #[allow(dead_code)]
-    fn protocol(&self) -> Protocol;
     async fn pwd(&mut self) -> AppResult<String>;
     async fn list_dir(&mut self, path: &str) -> AppResult<Vec<FileEntry>>;
     async fn mkdir(&mut self, path: &str) -> AppResult<()>;
@@ -197,10 +195,146 @@ pub fn join_remote_path(base: &str, name: &str) -> String {
     }
 }
 
+/// Returns true if `name` is a single normal path component without traversal or separators.
+pub fn is_safe_remote_entry_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return false;
+    }
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    )
+}
+
+pub enum HostKeyDecision {
+    Verified,
+    TrustedNew,
+    Prompt(HostKeyPromptInfo),
+}
+
+/// Evaluates an SSH server host key against `known_hosts` and an optional user-approved fingerprint.
+/// - Prevents TOCTOU by only trusting when `expected_fingerprint == Some(fingerprint)`.
+/// - Prevents key-type confusion by flagging `mismatch: true` if any other key is recorded for `(host, port)`.
+pub fn evaluate_ssh_host_key(
+    host: &str,
+    port: u16,
+    known_hosts: &[KnownHost],
+    key_type: &str,
+    fingerprint: &str,
+    expected_fingerprint: Option<&str>,
+) -> HostKeyDecision {
+    if known_hosts
+        .iter()
+        .any(|kh| kh.key_type == key_type && kh.fingerprint == fingerprint)
+    {
+        return HostKeyDecision::Verified;
+    }
+
+    if let Some(expected) = expected_fingerprint {
+        if expected == fingerprint {
+            return HostKeyDecision::TrustedNew;
+        }
+    }
+
+    let previous = known_hosts
+        .iter()
+        .find(|kh| kh.key_type == key_type)
+        .or_else(|| known_hosts.first());
+
+    HostKeyDecision::Prompt(HostKeyPromptInfo {
+        host: host.to_string(),
+        port,
+        key_type: key_type.to_string(),
+        fingerprint: fingerprint.to_string(),
+        mismatch: previous.is_some(),
+        previous_fingerprint: previous.map(|kh| kh.fingerprint.clone()),
+    })
+}
+
 pub fn sort_entries(entries: &mut [FileEntry]) {
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_remote_path_normalizes_slashes() {
+        assert_eq!(join_remote_path("/", "file.txt"), "/file.txt");
+        assert_eq!(join_remote_path("", "/file.txt"), "/file.txt");
+        assert_eq!(join_remote_path("/var/www/", "/index.html"), "/var/www/index.html");
+    }
+
+    #[test]
+    fn format_posix_permissions_formats_type_and_bits() {
+        assert_eq!(format_posix_permissions(0o755, true, false), "drwxr-xr-x");
+        assert_eq!(format_posix_permissions(0o644, false, false), "-rw-r--r--");
+        assert_eq!(format_posix_permissions(0o777, false, true), "lrwxrwxrwx");
+    }
+
+    #[test]
+    fn evaluate_ssh_host_key_blocks_toctou_and_key_type_confusion() {
+        let kh = vec![KnownHost {
+            id: "1".into(),
+            host: "example.com".into(),
+            port: 22,
+            key_type: "ssh-ed25519".into(),
+            fingerprint: "SHA256:good".into(),
+            first_seen_at: "2026-01-01T00:00:00Z".into(),
+        }];
+
+        // Exact match -> Verified
+        assert!(matches!(
+            evaluate_ssh_host_key("example.com", 22, &kh, "ssh-ed25519", "SHA256:good", None),
+            HostKeyDecision::Verified
+        ));
+
+        // Different key type for same host -> Mismatch prompt (not unknown host)
+        match evaluate_ssh_host_key("example.com", 22, &kh, "ssh-rsa", "SHA256:other", None) {
+            HostKeyDecision::Prompt(info) => {
+                assert!(info.mismatch);
+                assert_eq!(info.previous_fingerprint.as_deref(), Some("SHA256:good"));
+            }
+            _ => panic!("expected mismatch prompt"),
+        }
+
+        // TOCTOU: user approved SHA256:approved, attacker swaps SHA256:evil -> must prompt again
+        assert!(matches!(
+            evaluate_ssh_host_key(
+                "example.com",
+                22,
+                &[],
+                "ssh-ed25519",
+                "SHA256:evil",
+                Some("SHA256:approved")
+            ),
+            HostKeyDecision::Prompt(_)
+        ));
+
+        // Exact approved fingerprint -> TrustedNew
+        assert!(matches!(
+            evaluate_ssh_host_key(
+                "example.com",
+                22,
+                &[],
+                "ssh-ed25519",
+                "SHA256:approved",
+                Some("SHA256:approved")
+            ),
+            HostKeyDecision::TrustedNew
+        ));
+    }
 }

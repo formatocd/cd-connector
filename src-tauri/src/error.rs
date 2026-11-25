@@ -38,6 +38,9 @@ pub enum AppError {
 
     #[error("Authentication failed: {0}")]
     AuthFailed(String),
+
+    #[error("Internal lock error: {0}")]
+    LockPoisoned(String),
 }
 
 #[derive(Serialize)]
@@ -64,6 +67,7 @@ impl Serialize for AppError {
             AppError::Protocol(_) => "PROTOCOL_ERROR",
             AppError::NotConnected(_) => "NOT_CONNECTED",
             AppError::AuthFailed(_) => "AUTH_FAILED",
+            AppError::LockPoisoned(_) => "LOCK_POISONED",
         };
         SerializedError {
             code,

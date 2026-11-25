@@ -12,7 +12,6 @@
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
   <circle cx="256" cy="256" r="168" fill="none" stroke="url(#disc)" stroke-width="34" opacity="0.95"/>
-  <circle cx="256" cy="256" r="52" fill="#0f172a" stroke="#e2e8f0" stroke-width="14"/>
   <path d="M168 220 L316 220 L282 186" fill="none" stroke="#38bdf8" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M344 292 L196 292 L230 326" fill="none" stroke="#c084fc" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

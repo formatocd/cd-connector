@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { X, ExternalLink, Keyboard } from "lucide-react";
 import { AppLogo } from "./AppLogo";
+import pkg from "../../package.json";
 
 interface AboutModalProps {
   onClose: () => void;
@@ -46,7 +47,7 @@ export function AboutModal({ onClose }: AboutModalProps) {
             <div className="flex justify-between gap-3">
               <span className="text-zinc-500">{t("about.version")}</span>
               <span className="font-mono font-medium text-zinc-900 dark:text-zinc-100">
-                v1.1.0
+                v{pkg.version}
               </span>
             </div>
             <div className="flex justify-between gap-3">

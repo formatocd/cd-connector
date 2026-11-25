@@ -62,13 +62,23 @@ impl AuthType {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct CredentialSecretPayload {
     pub password: Option<String>,
     pub private_key: Option<String>,
     pub passphrase: Option<String>,
     pub tls_cert: Option<String>,
     pub tls_key: Option<String>,
+}
+
+impl std::fmt::Debug for CredentialSecretPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialSecretPayload")
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("private_key", &self.private_key.as_ref().map(|_| "[REDACTED]"))
+            .field("passphrase", &self.passphrase.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 fn default_true() -> bool {
@@ -490,7 +500,7 @@ pub struct ConnectRequest {
     pub remote_initial_path: Option<String>,
     pub passive_mode: Option<bool>,
     pub accept_invalid_certs: Option<bool>,
-    pub trust_host_key: Option<bool>,
+    pub expected_host_key_fingerprint: Option<String>,
 }
 
 // --- Phase 4: Transfer Queue & Conflict Resolution ---
@@ -578,7 +588,7 @@ pub struct SshConnectRequest {
     pub initial_dir: Option<String>,
     pub cols: Option<u32>,
     pub rows: Option<u32>,
-    pub trust_host_key: Option<bool>,
+    pub expected_host_key_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

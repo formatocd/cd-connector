@@ -48,17 +48,21 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to resolve app data directory");
+            let app_data_dir = app.path().app_data_dir()?;
             let db_path = app_data_dir.join("cd-remote.db");
             migrate_legacy_data_if_needed(&app_data_dir, &db_path);
-            let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
+            let conn = db::init_db(&db_path)?;
             let initial_config = db::load_app_config(&conn).unwrap_or_default();
 
             app.manage(AppState::new(conn, app_data_dir, &initial_config));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle().clone();
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(state.shutdown_all(&app));
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::security::get_security_status,
@@ -83,6 +87,8 @@ pub fn run() {
             commands::config::get_app_config,
             commands::config::update_app_config,
             commands::portability::export_data,
+            commands::portability::write_backup_file,
+            commands::portability::read_backup_file,
             commands::portability::preview_import,
             commands::portability::commit_import,
             commands::portability::inspect_export_bundle,
