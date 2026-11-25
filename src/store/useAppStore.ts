@@ -118,15 +118,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setSecurity: (security) => {
     set({ security });
     if (!security.unlocked) {
+      // Screen-lock mode: clear sensitive vault metadata but preserve active tabs & connections
       set({
         folders: [],
         sessions: [],
         credentials: [],
-        tabs: [],
-        activeTabId: null,
-        secondaryTabId: null,
-        splitDirection: "none",
-        focusedPane: 1,
       });
     }
   },

@@ -297,6 +297,46 @@ impl TransferManager {
         self.dispatch_next(app, connections);
     }
 
+    pub fn cancel_for_tab(&self, app: &AppHandle, tab_id: &str) {
+        let mut target_ids = Vec::new();
+        if let Ok(mut list) = self.items.lock() {
+            for item in list.iter_mut() {
+                if item.tab_id == tab_id
+                    && matches!(
+                        item.status,
+                        TransferStatus::Queued
+                            | TransferStatus::Paused
+                            | TransferStatus::WaitingConflict
+                            | TransferStatus::InProgress
+                    )
+                {
+                    target_ids.push(item.id.clone());
+                    item.status = TransferStatus::Cancelled;
+                    item.speed_bps = 0;
+                    item.eta_seconds = None;
+                }
+            }
+        }
+        if target_ids.is_empty() {
+            return;
+        }
+        if let Ok(controls) = self.controls.lock() {
+            for id in &target_ids {
+                if let Some(ctrl) = controls.get(id) {
+                    ctrl.cancel.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        if let Ok(mut waiters) = self.conflict_waiters.lock() {
+            for id in &target_ids {
+                if let Some(tx) = waiters.remove(id) {
+                    let _ = tx.send((ConflictAction::Skip, false));
+                }
+            }
+        }
+        self.emit_queue(app);
+    }
+
     pub fn cancel_all(&self, app: &AppHandle) {
         if let Ok(controls) = self.controls.lock() {
             for ctrl in controls.values() {

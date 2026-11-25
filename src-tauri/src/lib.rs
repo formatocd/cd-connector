@@ -57,6 +57,13 @@ pub fn run() {
             app.manage(AppState::new(conn, app_data_dir, &initial_config));
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle().clone();
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(state.shutdown_all(&app));
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::security::get_security_status,
             commands::security::setup_security_mode,

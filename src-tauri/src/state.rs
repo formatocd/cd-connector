@@ -3,6 +3,8 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::time::Duration;
+use tauri::AppHandle;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use uuid::Uuid;
 
@@ -10,7 +12,7 @@ use crate::crypto::{self, MasterKey};
 use crate::db;
 use crate::error::{AppError, AppResult};
 use crate::models::{AppConfig, AuthType, CredentialSecretPayload, KnownHost};
-use crate::protocols::ssh_terminal::SshTerminalHandle;
+use crate::protocols::ssh_terminal::{SshCommand, SshTerminalHandle};
 use crate::protocols::{FileTransferClient, ResolvedAuth};
 use crate::transfer::TransferManager;
 
@@ -24,6 +26,7 @@ pub struct AppState {
     pub connections: Arc<AsyncRwLock<HashMap<String, SharedClient>>>,
     pub ssh_terminals: Arc<AsyncRwLock<HashMap<String, SshTerminalHandle>>>,
     pub ssh_log_files: Arc<AsyncRwLock<HashMap<String, SharedLogFile>>>,
+    pub tab_generations: Mutex<HashMap<String, u64>>,
     pub transfers: Arc<TransferManager>,
 }
 
@@ -36,11 +39,72 @@ impl AppState {
             connections: Arc::new(AsyncRwLock::new(HashMap::new())),
             ssh_terminals: Arc::new(AsyncRwLock::new(HashMap::new())),
             ssh_log_files: Arc::new(AsyncRwLock::new(HashMap::new())),
+            tab_generations: Mutex::new(HashMap::new()),
             transfers: TransferManager::new(
                 config.max_concurrent_transfers,
                 config.upload_limit_kbps,
                 config.download_limit_kbps,
             ),
+        }
+    }
+
+    /// Starts a new connection attempt for `tab_id` and returns its unique generation token.
+    pub fn begin_tab_connect(&self, tab_id: &str) -> u64 {
+        let mut map = self.tab_generations.lock().unwrap_or_else(|e| e.into_inner());
+        let next = map.get(tab_id).copied().unwrap_or(0).wrapping_add(1);
+        map.insert(tab_id.to_string(), next);
+        next
+    }
+
+    /// Invalidates any in-flight connection handshake for `tab_id`.
+    pub fn invalidate_tab(&self, tab_id: &str) {
+        let mut map = self.tab_generations.lock().unwrap_or_else(|e| e.into_inner());
+        let next = map.get(tab_id).copied().unwrap_or(0).wrapping_add(1);
+        map.insert(tab_id.to_string(), next);
+    }
+
+    /// Returns true only if `gen` is still the active connection generation for `tab_id`.
+    pub fn is_tab_generation_current(&self, tab_id: &str, gen: u64) -> bool {
+        let map = self.tab_generations.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(tab_id).copied() == Some(gen)
+    }
+
+    /// Gracefully cancels transfers and closes all active FTP/SFTP/SSH sessions and log files.
+    pub async fn shutdown_all(&self, app: &AppHandle) {
+        {
+            let mut map = self.tab_generations.lock().unwrap_or_else(|e| e.into_inner());
+            for gen in map.values_mut() {
+                *gen = gen.wrapping_add(1);
+            }
+        }
+
+        self.transfers.cancel_all(app);
+        self.ssh_log_files.write().await.clear();
+
+        let terminals: Vec<SshTerminalHandle> = self
+            .ssh_terminals
+            .write()
+            .await
+            .drain()
+            .map(|(_, h)| h)
+            .collect();
+        for handle in terminals {
+            let _ = handle.tx.send(SshCommand::Close { silent: true });
+        }
+
+        let clients: Vec<SharedClient> = self
+            .connections
+            .write()
+            .await
+            .drain()
+            .map(|(_, c)| c)
+            .collect();
+        for conn in clients {
+            let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                let mut client = conn.lock().await;
+                let _ = client.disconnect().await;
+            })
+            .await;
         }
     }
 
@@ -146,5 +210,29 @@ impl AppState {
         map.get(tab_id)
             .cloned()
             .ok_or_else(|| AppError::NotConnected(format!("No active connection for tab {tab_id}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tab_generation_invalidates_in_flight_connects() {
+        let conn = Connection::open_in_memory().unwrap();
+        let state = AppState::new(conn, PathBuf::from("."), &AppConfig::default());
+
+        let g1 = state.begin_tab_connect("tab-1");
+        assert!(state.is_tab_generation_current("tab-1", g1));
+
+        // Closing the tab invalidates the in-flight generation
+        state.invalidate_tab("tab-1");
+        assert!(!state.is_tab_generation_current("tab-1", g1));
+
+        // A concurrent reconnect supersedes the previous attempt
+        let g2 = state.begin_tab_connect("tab-1");
+        let g3 = state.begin_tab_connect("tab-1");
+        assert!(!state.is_tab_generation_current("tab-1", g2));
+        assert!(state.is_tab_generation_current("tab-1", g3));
     }
 }

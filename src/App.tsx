@@ -314,6 +314,7 @@ export function App() {
   // Global panel visibility shortcuts (RF-11)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!security.unlocked) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -342,6 +343,7 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    security.unlocked,
     isTransferTabActive,
     config.ui_show_sidebar,
     config.ui_show_local_panel,
@@ -378,17 +380,23 @@ export function App() {
     return <SetupWizard />;
   }
 
-  if (!security.unlocked) {
-    return <UnlockModal />;
-  }
-
   const handleLock = async () => {
     const status = await api.lockVault();
     setSecurity(status);
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+    <div className="h-full w-full relative">
+      {!security.unlocked && (
+        <div className="fixed inset-0 z-50">
+          <UnlockModal />
+        </div>
+      )}
+      <div
+        className={`h-full w-full flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 ${
+          !security.unlocked ? "hidden" : ""
+        }`}
+      >
       {/* Top Toolbar */}
       <header className="h-11 shrink-0 px-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
@@ -850,6 +858,7 @@ export function App() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }
