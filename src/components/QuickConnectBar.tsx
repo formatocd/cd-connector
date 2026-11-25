@@ -188,6 +188,7 @@ export function QuickConnectBar({ preset, onSaveToTree }: QuickConnectBarProps) 
       username,
       password,
     });
+    setPassword("");
   };
 
   const handleFillFromHistory = (item: QuickConnectHistoryItem) => {

@@ -14,12 +14,23 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AppError, AppResult};
 use crate::models::{FileEntry, Protocol};
 use crate::protocols::{
-    join_remote_path, sort_entries, ExistingFileInfo, FileTransferClient, LogEmitter, ResolvedAuth,
-    TransferControl, TransferOutcome,
+    is_safe_remote_entry_name, join_remote_path, sort_entries, ExistingFileInfo,
+    FileTransferClient, LogEmitter, ResolvedAuth, TransferControl, TransferOutcome,
 };
 
+fn validate_ftp_arg(arg: &str) -> AppResult<()> {
+    if arg.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+        return Err(AppError::Validation(
+            "FTP argument contains forbidden control characters (CR/LF/NUL)".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
-struct DangerousServerCertVerifier;
+struct DangerousServerCertVerifier {
+    provider: Arc<rustls::crypto::CryptoProvider>,
+}
 
 impl ServerCertVerifier for DangerousServerCertVerifier {
     fn verify_server_cert(
@@ -35,46 +46,50 @@ impl ServerCertVerifier for DangerousServerCertVerifier {
 
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        vec![
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::ED25519,
-        ]
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
 fn build_tls_connector(accept_invalid_certs: bool) -> AppResult<AsyncRustlsConnector> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = if accept_invalid_certs {
+        let verifier = Arc::new(DangerousServerCertVerifier {
+            provider: Arc::clone(&provider),
+        });
         ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .map_err(|e| AppError::Protocol(format!("TLS config error: {e}")))?
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(DangerousServerCertVerifier))
+            .with_custom_certificate_verifier(verifier)
             .with_no_client_auth()
     } else {
         let root_store = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -106,16 +121,33 @@ impl FtpClient {
     ) -> AppResult<Self> {
         let addr = format!("{host}:{port}");
         logger.info(format!("Connecting to {addr} ({})...", protocol.as_str()));
+        let connect_timeout = std::time::Duration::from_secs(30);
 
         let mut stream = match protocol {
-            Protocol::Ftp => AsyncRustlsFtpStream::connect(&addr)
-                .await
-                .map_err(|e| {
-                    logger.error(format!("Connection failed: {e}"));
-                    AppError::Protocol(e.to_string())
-                })?,
+            Protocol::Ftp => tokio::time::timeout(
+                connect_timeout,
+                AsyncRustlsFtpStream::connect(&addr),
+            )
+            .await
+            .map_err(|_| {
+                logger.error("Connection timed out after 30s");
+                AppError::Protocol("Connection timed out after 30s".into())
+            })?
+            .map_err(|e| {
+                logger.error(format!("Connection failed: {e}"));
+                AppError::Protocol(e.to_string())
+            })?,
             Protocol::FtpsExplicit => {
-                let plain = AsyncRustlsFtpStream::connect(&addr).await.map_err(|e| {
+                let plain = tokio::time::timeout(
+                    connect_timeout,
+                    AsyncRustlsFtpStream::connect(&addr),
+                )
+                .await
+                .map_err(|_| {
+                    logger.error("Connection timed out after 30s");
+                    AppError::Protocol("Connection timed out after 30s".into())
+                })?
+                .map_err(|e| {
                     logger.error(format!("Connection failed: {e}"));
                     AppError::Protocol(e.to_string())
                 })?;
@@ -124,22 +156,35 @@ impl FtpClient {
                 }
                 logger.command("AUTH TLS");
                 let connector = build_tls_connector(accept_invalid_certs)?;
-                plain.into_secure(connector, host).await.map_err(|e| {
-                    logger.error(format!("FTPS Explicit handshake failed: {e}"));
-                    AppError::Protocol(e.to_string())
-                })?
+                tokio::time::timeout(connect_timeout, plain.into_secure(connector, host))
+                    .await
+                    .map_err(|_| {
+                        logger.error("FTPS Explicit handshake timed out after 30s");
+                        AppError::Protocol("FTPS Explicit handshake timed out after 30s".into())
+                    })?
+                    .map_err(|e| {
+                        logger.error(format!("FTPS Explicit handshake failed: {e}"));
+                        AppError::Protocol(e.to_string())
+                    })?
             }
             Protocol::FtpsImplicit => {
                 if accept_invalid_certs {
                     logger.info("TLS certificate verification disabled for this session");
                 }
                 let connector = build_tls_connector(accept_invalid_certs)?;
-                AsyncRustlsFtpStream::connect_secure_implicit(&addr, connector, host)
-                    .await
-                    .map_err(|e| {
-                        logger.error(format!("FTPS Implicit handshake failed: {e}"));
-                        AppError::Protocol(e.to_string())
-                    })?
+                tokio::time::timeout(
+                    connect_timeout,
+                    AsyncRustlsFtpStream::connect_secure_implicit(&addr, connector, host),
+                )
+                .await
+                .map_err(|_| {
+                    logger.error("FTPS Implicit handshake timed out after 30s");
+                    AppError::Protocol("FTPS Implicit handshake timed out after 30s".into())
+                })?
+                .map_err(|e| {
+                    logger.error(format!("FTPS Implicit handshake failed: {e}"));
+                    AppError::Protocol(e.to_string())
+                })?
             }
             _ => {
                 return Err(AppError::Protocol(
@@ -166,6 +211,8 @@ impl FtpClient {
             &auth.username
         };
         let pass = auth.password.as_deref().unwrap_or("");
+        validate_ftp_arg(user)?;
+        validate_ftp_arg(pass)?;
         logger.command(format!("USER {user}"));
         logger.command("PASS ********");
         stream.login(user, pass).await.map_err(|e| {
@@ -195,6 +242,7 @@ impl FileTransferClient for FtpClient {
 
     async fn list_dir(&mut self, path: &str) -> AppResult<Vec<FileEntry>> {
         let target = if path.is_empty() { "/" } else { path };
+        validate_ftp_arg(target)?;
         self.logger.command(format!("CWD {target}"));
         self.stream.cwd(target).await.map_err(|e| {
             self.logger.error(format!("CWD error: {e}"));
@@ -217,6 +265,7 @@ impl FileTransferClient for FtpClient {
     }
 
     async fn mkdir(&mut self, path: &str) -> AppResult<()> {
+        validate_ftp_arg(path)?;
         self.logger.command(format!("MKD {path}"));
         self.stream.mkdir(path).await.map_err(|e| {
             self.logger.error(format!("MKD error: {e}"));
@@ -227,6 +276,8 @@ impl FileTransferClient for FtpClient {
     }
 
     async fn rename(&mut self, from: &str, to: &str) -> AppResult<()> {
+        validate_ftp_arg(from)?;
+        validate_ftp_arg(to)?;
         self.logger.command(format!("RNFR {from}"));
         self.logger.command(format!("RNTO {to}"));
         self.stream.rename(from, to).await.map_err(|e| {
@@ -238,6 +289,7 @@ impl FileTransferClient for FtpClient {
     }
 
     async fn delete_file(&mut self, path: &str) -> AppResult<()> {
+        validate_ftp_arg(path)?;
         self.logger.command(format!("DELE {path}"));
         self.stream.rm(path).await.map_err(|e| {
             self.logger.error(format!("DELE error: {e}"));
@@ -248,6 +300,7 @@ impl FileTransferClient for FtpClient {
     }
 
     async fn delete_dir(&mut self, path: &str) -> AppResult<()> {
+        validate_ftp_arg(path)?;
         self.logger.command(format!("RMD {path}"));
         self.stream.rmdir(path).await.map_err(|e| {
             self.logger.error(format!("RMD error: {e}"));
@@ -258,6 +311,7 @@ impl FileTransferClient for FtpClient {
     }
 
     async fn chmod(&mut self, path: &str, mode: u32) -> AppResult<()> {
+        validate_ftp_arg(path)?;
         let cmd = format!("CHMOD {:o} {}", mode, path);
         self.logger.command(format!("SITE {cmd}"));
         let resp = self.stream.site(&cmd).await.map_err(|e| {
@@ -479,7 +533,17 @@ impl FileTransferClient for FtpClient {
         if trimmed.is_empty() {
             return Ok(String::new());
         }
-        self.logger.command(trimmed);
+        validate_ftp_arg(trimmed)?;
+        let logged = if trimmed
+            .get(..5)
+            .map(|p| p.eq_ignore_ascii_case("PASS "))
+            .unwrap_or(false)
+        {
+            "PASS ********"
+        } else {
+            trimmed
+        };
+        self.logger.command(logged);
         match self.stream.custom_command(trimmed, &[Status::CommandOk]).await {
             Ok(resp) => {
                 let text = format!(
@@ -556,7 +620,7 @@ fn parse_ftp_list_line(line: &str, parent_dir: &str) -> Option<FileEntry> {
             } else {
                 raw_name
             };
-            if name == "." || name == ".." || name.is_empty() {
+            if !is_safe_remote_entry_name(name) {
                 return None;
             }
             let mode = parse_unix_perm_mode(perms);
@@ -585,7 +649,7 @@ fn parse_ftp_list_line(line: &str, parent_dir: &str) -> Option<FileEntry> {
             parts[2].parse::<u64>().unwrap_or(0)
         };
         let name = parts[3..].join(" ");
-        if name == "." || name == ".." || name.is_empty() {
+        if !is_safe_remote_entry_name(&name) {
             return None;
         }
         return Some(FileEntry {
@@ -670,5 +734,13 @@ mod tests {
         assert_eq!(parse_unix_perm_mode("drwxr-xr-x"), Some(0o755));
         assert_eq!(parse_unix_perm_mode("-rw-------"), Some(0o600));
         assert_eq!(parse_unix_perm_mode("short"), None);
+    }
+
+    #[test]
+    fn validate_ftp_arg_rejects_crlf_and_nul() {
+        assert!(validate_ftp_arg("/public_html/index.html").is_ok());
+        assert!(validate_ftp_arg("foo\r\nDELE secret.txt").is_err());
+        assert!(validate_ftp_arg("foo\nbar").is_err());
+        assert!(validate_ftp_arg("foo\0bar").is_err());
     }
 }

@@ -132,7 +132,17 @@ fn validate_deletable_path(path: &str) -> AppResult<&Path> {
         return Err(AppError::Validation("Path cannot be empty".into()));
     }
     let normalized = trimmed.replace('\\', "/");
-    let stripped = normalized.trim_end_matches('/');
+    // Reject Windows extended-length prefix roots (e.g. \\?\C:\) and unresolved parent traversal
+    let without_ext_prefix = normalized
+        .strip_prefix("//?/")
+        .or_else(|| normalized.strip_prefix("//./"))
+        .unwrap_or(&normalized);
+    if without_ext_prefix.split('/').any(|seg| seg == "..") {
+        return Err(AppError::Validation(
+            "Refusing to delete path containing parent traversal ('..')".into(),
+        ));
+    }
+    let stripped = without_ext_prefix.trim_end_matches('/');
     // Reject POSIX root "/", Windows drive roots "C:", "C:/", or UNC root "//server" / "//server/share"
     if stripped.is_empty() {
         return Err(AppError::Validation("Refusing to delete root path".into()));
@@ -140,7 +150,7 @@ fn validate_deletable_path(path: &str) -> AppResult<&Path> {
     if stripped.len() == 2 && stripped.as_bytes()[0].is_ascii_alphabetic() && stripped.as_bytes()[1] == b':' {
         return Err(AppError::Validation("Refusing to delete drive root".into()));
     }
-    if normalized.starts_with("//") {
+    if normalized.starts_with("//") && !normalized.starts_with("//?/") && !normalized.starts_with("//./") {
         let parts: Vec<&str> = normalized.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
         if parts.len() <= 2 {
             return Err(AppError::Validation("Refusing to delete network share root".into()));
@@ -197,7 +207,20 @@ mod tests {
 
     #[test]
     fn validate_deletable_path_rejects_empty_and_roots() {
-        for forbidden in ["", "   ", "/", "///", "C:", "C:\\", "C:/", "\\\\server\\share", "//server/share/"] {
+        for forbidden in [
+            "",
+            "   ",
+            "/",
+            "///",
+            "C:",
+            "C:\\",
+            "C:/",
+            "\\\\?\\C:\\",
+            "C:\\Users\\..",
+            "/tmp/..",
+            "\\\\server\\share",
+            "//server/share/",
+        ] {
             assert!(
                 validate_deletable_path(forbidden).is_err(),
                 "expected rejection for {forbidden:?}"

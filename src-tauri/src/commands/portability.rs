@@ -659,8 +659,15 @@ pub fn setup_from_json(
     })
 }
 
+const MAX_BACKUP_FILE_BYTES: u64 = 50 * 1024 * 1024; // 50 MiB
+
 #[tauri::command]
-pub fn write_backup_file(path: String, content: String) -> AppResult<()> {
+pub fn write_backup_file(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    let _ = state.get_master_key()?;
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(AppError::Validation("Backup file path cannot be empty".into()));
@@ -674,6 +681,12 @@ pub fn read_backup_file(path: String) -> AppResult<String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err(AppError::Validation("Backup file path cannot be empty".into()));
+    }
+    let meta = std::fs::metadata(trimmed)?;
+    if meta.len() > MAX_BACKUP_FILE_BYTES {
+        return Err(AppError::Validation(
+            "Backup file exceeds maximum allowed size (50 MiB)".into(),
+        ));
     }
     Ok(std::fs::read_to_string(trimmed)?)
 }

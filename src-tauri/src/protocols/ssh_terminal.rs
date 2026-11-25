@@ -12,7 +12,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AuthType, HostKeyPromptInfo, KnownHost, SshClosedEvent, SshDataEvent};
-use crate::protocols::ResolvedAuth;
+use crate::protocols::{evaluate_ssh_host_key, HostKeyDecision, ResolvedAuth};
 use crate::state::SharedLogFile;
 
 /// Builds a safe POSIX `cd` command for the initial SSH directory, rejecting control characters.
@@ -21,7 +21,7 @@ fn build_initial_cd_command(initial_dir: Option<&str>) -> Option<String> {
     if dir.is_empty() || dir == "/" {
         return None;
     }
-    if dir.bytes().any(|b| b == b'\n' || b == b'\r' || b == 0) {
+    if dir.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return None;
     }
     let escaped = dir.replace('\'', "'\\''");
@@ -123,7 +123,7 @@ struct SshTermHandler {
     host: String,
     port: u16,
     known_hosts: Vec<KnownHost>,
-    trust_host_key: bool,
+    expected_fingerprint: Option<String>,
     prompt_info: Arc<Mutex<Option<HostKeyPromptInfo>>>,
     accepted_key: Arc<Mutex<Option<(String, String)>>>,
 }
@@ -146,47 +146,28 @@ impl client::Handler for SshTermHandler {
             ),
         };
 
-        if let Some(existing) = self.known_hosts.iter().find(|kh| kh.key_type == key_type) {
-            if existing.fingerprint == fingerprint {
-                return Ok(true);
-            }
-            if self.trust_host_key {
+        match evaluate_ssh_host_key(
+            &self.host,
+            self.port,
+            &self.known_hosts,
+            &key_type,
+            &fingerprint,
+            self.expected_fingerprint.as_deref(),
+        ) {
+            HostKeyDecision::Verified => Ok(true),
+            HostKeyDecision::TrustedNew => {
                 if let Ok(mut guard) = self.accepted_key.lock() {
                     *guard = Some((key_type, fingerprint));
                 }
-                return Ok(true);
+                Ok(true)
             }
-            if let Ok(mut guard) = self.prompt_info.lock() {
-                *guard = Some(HostKeyPromptInfo {
-                    host: self.host.clone(),
-                    port: self.port,
-                    key_type,
-                    fingerprint,
-                    mismatch: true,
-                    previous_fingerprint: Some(existing.fingerprint.clone()),
-                });
+            HostKeyDecision::Prompt(info) => {
+                if let Ok(mut guard) = self.prompt_info.lock() {
+                    *guard = Some(info);
+                }
+                Ok(false)
             }
-            return Ok(false);
         }
-
-        if self.trust_host_key {
-            if let Ok(mut guard) = self.accepted_key.lock() {
-                *guard = Some((key_type, fingerprint));
-            }
-            return Ok(true);
-        }
-
-        if let Ok(mut guard) = self.prompt_info.lock() {
-            *guard = Some(HostKeyPromptInfo {
-                host: self.host.clone(),
-                port: self.port,
-                key_type,
-                fingerprint,
-                mismatch: false,
-                previous_fingerprint: None,
-            });
-        }
-        Ok(false)
     }
 }
 
@@ -197,7 +178,7 @@ pub async fn connect_ssh_terminal(
     port: u16,
     auth: &ResolvedAuth,
     known_hosts: Vec<KnownHost>,
-    trust_host_key: bool,
+    expected_fingerprint: Option<String>,
     cols: u32,
     rows: u32,
     initial_dir: Option<String>,
@@ -211,7 +192,7 @@ pub async fn connect_ssh_terminal(
         host: host.to_string(),
         port,
         known_hosts,
-        trust_host_key,
+        expected_fingerprint,
         prompt_info: prompt_info.clone(),
         accepted_key: accepted_key.clone(),
     };
@@ -222,7 +203,12 @@ pub async fn connect_ssh_terminal(
         ..Default::default()
     };
 
-    let connect_result = client::connect(Arc::new(config), (host, port), handler).await;
+    let connect_result = tokio::time::timeout(
+        Duration::from_secs(30),
+        client::connect(Arc::new(config), (host, port), handler),
+    )
+    .await
+    .map_err(|_| AppError::Protocol("SSH connection timed out after 30s".into()))?;
     let mut session = match connect_result {
         Ok(h) => h,
         Err(e) => {
@@ -303,7 +289,7 @@ pub async fn connect_ssh_terminal(
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<SshCommand>();
-    let tx_for_cleanup = tx.clone();
+    let tx_weak = tx.downgrade();
     let tab_id_task = tab_id.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -365,13 +351,17 @@ pub async fn connect_ssh_terminal(
         // Clean up terminal handle and log file if this handle is still the active one for the tab
         let removed_self = {
             let mut map = ssh_terminals.write().await;
-            if map
-                .get(&tab_id_task)
-                .map(|h| h.tx.same_channel(&tx_for_cleanup))
-                .unwrap_or(false)
-            {
-                map.remove(&tab_id_task);
-                true
+            if let Some(strong_tx) = tx_weak.upgrade() {
+                if map
+                    .get(&tab_id_task)
+                    .map(|h| h.tx.same_channel(&strong_tx))
+                    .unwrap_or(false)
+                {
+                    map.remove(&tab_id_task);
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }

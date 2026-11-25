@@ -113,7 +113,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
 
   const connect = useCallback(
     async (opts?: {
-      trustHostKey?: boolean;
+      expectedHostKeyFingerprint?: string;
       overrideAuth?: { username: string; password?: string };
     }) => {
       setConnState("connecting");
@@ -134,7 +134,7 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
           remote_initial_path: session.remote_initial_path || null,
           passive_mode: session.passive_mode,
           accept_invalid_certs: session.accept_invalid_certs,
-          trust_host_key: opts?.trustHostKey ?? false,
+          expected_host_key_fingerprint: opts?.expectedHostKeyFingerprint ?? null,
         });
 
         if (res.status === "host_key_prompt" && res.host_key_info) {
@@ -592,7 +592,9 @@ export function SessionWorkspace({ tab, isActive }: SessionWorkspaceProps) {
       {hostKeyPrompt && (
         <HostKeyModal
           info={hostKeyPrompt}
-          onTrust={() => connect({ trustHostKey: true })}
+          onTrust={() =>
+            connect({ expectedHostKeyFingerprint: hostKeyPrompt.fingerprint })
+          }
           onCancel={() => setHostKeyPrompt(null)}
         />
       )}

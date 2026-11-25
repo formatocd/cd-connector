@@ -34,6 +34,8 @@ pub async fn ssh_connect(
         });
     };
 
+    let connect_gen = state.begin_tab_connect(&request.tab_id);
+
     // Close any previous SSH terminal on this tab silently so it doesn't emit a stale disconnect event
     if let Some(prev) = state.ssh_terminals.write().await.remove(&request.tab_id) {
         let _ = prev.tx.send(SshCommand::Close { silent: true });
@@ -48,7 +50,7 @@ pub async fn ssh_connect(
         request.port,
         &auth,
         known_hosts,
-        request.trust_host_key.unwrap_or(false),
+        request.expected_host_key_fingerprint.clone(),
         request.cols.unwrap_or(100),
         request.rows.unwrap_or(30),
         request.initial_dir.clone(),
@@ -71,11 +73,20 @@ pub async fn ssh_connect(
                 state.record_known_host(&request.host, request.port, &key_type, &fingerprint)?;
             }
 
-            state
+            // If the tab was closed or superseded during handshake, close immediately
+            if !state.is_tab_generation_current(&request.tab_id, connect_gen) {
+                let _ = handle.tx.send(SshCommand::Close { silent: true });
+                return Err(AppError::NotConnected("Connection cancelled".into()));
+            }
+
+            if let Some(prev) = state
                 .ssh_terminals
                 .write()
                 .await
-                .insert(request.tab_id, handle);
+                .insert(request.tab_id, handle)
+            {
+                let _ = prev.tx.send(SshCommand::Close { silent: true });
+            }
 
             Ok(ConnectResponse {
                 status: ConnectStatus::Connected,
@@ -111,9 +122,11 @@ pub async fn ssh_resize(
 
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
+    state.invalidate_tab(&tab_id);
     if let Some(handle) = state.ssh_terminals.write().await.remove(&tab_id) {
         let _ = handle.tx.send(SshCommand::Close { silent: false });
     }
+    state.ssh_log_files.write().await.remove(&tab_id);
     Ok(())
 }
 
@@ -123,12 +136,11 @@ pub async fn ssh_start_log(
     tab_id: String,
     file_path: String,
 ) -> AppResult<()> {
-    let file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&file_path)
-        .await?;
+    let mut opts = tokio::fs::OpenOptions::new();
+    opts.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let file = opts.open(&file_path).await?;
     state
         .ssh_log_files
         .write()

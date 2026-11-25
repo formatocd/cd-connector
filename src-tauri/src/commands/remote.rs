@@ -44,6 +44,7 @@ pub async fn connect_session(
     };
 
     let logger = LogEmitter::new(app, request.tab_id.clone());
+    let connect_gen = state.begin_tab_connect(&request.tab_id);
 
     // Disconnect any previous connection on this tab
     if let Some(prev) = state.connections.write().await.remove(&request.tab_id) {
@@ -73,7 +74,7 @@ pub async fn connect_session(
                 request.port,
                 &auth,
                 known_hosts,
-                request.trust_host_key.unwrap_or(false),
+                request.expected_host_key_fingerprint.clone(),
                 logger.clone(),
             )
             .await?;
@@ -115,11 +116,21 @@ pub async fn connect_session(
         None => client.pwd().await.unwrap_or_else(|_| "/".to_string()),
     };
 
-    state
+    // If the tab was closed or superseded while connecting, close immediately instead of leaking
+    if !state.is_tab_generation_current(&request.tab_id, connect_gen) {
+        let _ = client.disconnect().await;
+        return Err(AppError::NotConnected("Connection cancelled".into()));
+    }
+
+    let replaced = state
         .connections
         .write()
         .await
         .insert(request.tab_id, Arc::new(AsyncMutex::new(client)));
+    if let Some(prev) = replaced {
+        let mut guard = prev.lock().await;
+        let _ = guard.disconnect().await;
+    }
 
     Ok(ConnectResponse {
         status: ConnectStatus::Connected,
@@ -129,10 +140,19 @@ pub async fn connect_session(
 }
 
 #[tauri::command]
-pub async fn disconnect_session(state: State<'_, AppState>, tab_id: String) -> AppResult<()> {
+pub async fn disconnect_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tab_id: String,
+) -> AppResult<()> {
+    state.invalidate_tab(&tab_id);
+    state.transfers.cancel_for_tab(&app, &tab_id);
     if let Some(conn) = state.connections.write().await.remove(&tab_id) {
-        let mut client = conn.lock().await;
-        client.disconnect().await?;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let mut client = conn.lock().await;
+            let _ = client.disconnect().await;
+        })
+        .await;
     }
     Ok(())
 }

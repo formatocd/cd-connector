@@ -172,7 +172,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
 
   const connect = useCallback(
     async (opts?: {
-      trustHostKey?: boolean;
+      expectedHostKeyFingerprint?: string;
       overrideAuth?: { username: string; password?: string };
     }) => {
       setConnState("connecting");
@@ -202,7 +202,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
           initial_dir: session.remote_initial_path || null,
           cols: term?.cols ?? 100,
           rows: term?.rows ?? 30,
-          trust_host_key: opts?.trustHostKey ?? false,
+          expected_host_key_fingerprint: opts?.expectedHostKeyFingerprint ?? null,
         });
 
         if (res.status === "host_key_prompt" && res.host_key_info) {
@@ -254,7 +254,18 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        try {
+          const parsed = new URL(uri);
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+            window.open(parsed.href, "_blank", "noopener,noreferrer");
+          }
+        } catch {
+          // Ignore malformed URLs
+        }
+      })
+    );
     term.open(container);
     fit.fit();
 
@@ -417,6 +428,7 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
     listen<SshClosedEvent>("ssh-closed", (event) => {
       if (cancelled || event.payload.tab_id !== tabId) return;
       setConnState("disconnected");
+      setLogFilePath(null);
       termRef.current?.writeln(
         `\r\n\x1b[33m[${event.payload.reason}]\x1b[0m`
       );
@@ -535,7 +547,9 @@ export function SshTerminalWorkspace({ tab, isActive }: SshTerminalWorkspaceProp
       {hostKeyPrompt && (
         <HostKeyModal
           info={hostKeyPrompt}
-          onTrust={() => connect({ trustHostKey: true })}
+          onTrust={() =>
+            connect({ expectedHostKeyFingerprint: hostKeyPrompt.fingerprint })
+          }
           onCancel={() => setHostKeyPrompt(null)}
         />
       )}

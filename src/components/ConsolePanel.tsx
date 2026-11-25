@@ -48,7 +48,7 @@ export function ConsolePanel({ tabId, protocol, connected }: ConsolePanelProps) 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = cmdInput.trim();
-    if (!trimmed || !connected || !isFtpLike) return;
+    if (!trimmed || !connected || !ftpLike) return;
 
     setSending(true);
     setCmdInput("");

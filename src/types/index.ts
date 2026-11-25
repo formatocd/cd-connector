@@ -248,6 +248,7 @@ export interface ConnectRequest {
   passive_mode?: boolean;
   accept_invalid_certs?: boolean;
   trust_host_key?: boolean;
+  expected_host_key_fingerprint?: string | null;
 }
 
 export type TransferDirection = "upload" | "download";
@@ -316,6 +317,7 @@ export interface SshConnectRequest {
   cols?: number;
   rows?: number;
   trust_host_key?: boolean;
+  expected_host_key_fingerprint?: string | null;
 }
 
 export interface SshDataEvent {

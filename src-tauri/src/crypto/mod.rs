@@ -55,16 +55,21 @@ pub fn encrypt(key: &MasterKey, plaintext: &[u8]) -> AppResult<(Vec<u8>, Vec<u8>
     Ok((ciphertext, nonce_bytes.to_vec()))
 }
 
-pub fn decrypt(key: &MasterKey, ciphertext: &[u8], nonce_bytes: &[u8]) -> AppResult<Vec<u8>> {
+pub fn decrypt(
+    key: &MasterKey,
+    ciphertext: &[u8],
+    nonce_bytes: &[u8],
+) -> AppResult<zeroize::Zeroizing<Vec<u8>>> {
     if nonce_bytes.len() != 12 {
         return Err(AppError::Crypto("Invalid nonce length".into()));
     }
     let cipher = Aes256Gcm::new_from_slice(&key.0)
         .map_err(|e| AppError::Crypto(format!("Cipher init failed: {e}")))?;
     let nonce = Nonce::from_slice(nonce_bytes);
-    cipher
+    let plain = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|_| AppError::InvalidPassword)
+        .map_err(|_| AppError::InvalidPassword)?;
+    Ok(zeroize::Zeroizing::new(plain))
 }
 
 pub fn create_verification_token(key: &MasterKey) -> AppResult<String> {
@@ -84,7 +89,7 @@ pub fn verify_key(key: &MasterKey, token_b64: &str) -> AppResult<bool> {
     }
     let (nonce, ciphertext) = combined.split_at(12);
     match decrypt(key, ciphertext, nonce) {
-        Ok(plaintext) => Ok(plaintext == VERIFICATION_SENTINEL),
+        Ok(plaintext) => Ok(plaintext.as_slice() == VERIFICATION_SENTINEL),
         Err(AppError::InvalidPassword) => Ok(false),
         Err(e) => Err(e),
     }
@@ -93,13 +98,24 @@ pub fn verify_key(key: &MasterKey, token_b64: &str) -> AppResult<bool> {
 pub fn save_transparent_key(app_data_dir: &Path, key: &MasterKey) -> AppResult<()> {
     fs::create_dir_all(app_data_dir)?;
     let key_path = app_data_dir.join(KEY_FILE_NAME);
-    let encoded = B64.encode(key.0);
-    fs::write(&key_path, encoded)?;
+    let encoded = zeroize::Zeroizing::new(B64.encode(key.0));
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&key_path)?;
+        file.write_all(encoded.as_bytes())?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(&key_path, encoded.as_bytes())?;
     }
 
     Ok(())
@@ -140,7 +156,7 @@ mod tests {
         let key = MasterKey::random();
         let other = MasterKey::random();
         let (ct, nonce) = encrypt(&key, b"top-secret-payload").unwrap();
-        assert_eq!(decrypt(&key, &ct, &nonce).unwrap(), b"top-secret-payload");
+        assert_eq!(decrypt(&key, &ct, &nonce).unwrap().as_slice(), b"top-secret-payload");
         assert!(matches!(decrypt(&other, &ct, &nonce), Err(AppError::InvalidPassword)));
         assert!(decrypt(&key, &ct, &[0u8; 4]).is_err());
     }
