@@ -500,7 +500,6 @@ pub struct ConnectRequest {
     pub remote_initial_path: Option<String>,
     pub passive_mode: Option<bool>,
     pub accept_invalid_certs: Option<bool>,
-    pub trust_host_key: Option<bool>,
     pub expected_host_key_fingerprint: Option<String>,
 }
 
@@ -589,7 +588,6 @@ pub struct SshConnectRequest {
     pub initial_dir: Option<String>,
     pub cols: Option<u32>,
     pub rows: Option<u32>,
-    pub trust_host_key: Option<bool>,
     pub expected_host_key_fingerprint: Option<String>,
 }
 

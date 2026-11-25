@@ -247,7 +247,6 @@ export interface ConnectRequest {
   remote_initial_path?: string | null;
   passive_mode?: boolean;
   accept_invalid_certs?: boolean;
-  trust_host_key?: boolean;
   expected_host_key_fingerprint?: string | null;
 }
 
@@ -316,7 +315,6 @@ export interface SshConnectRequest {
   initial_dir?: string | null;
   cols?: number;
   rows?: number;
-  trust_host_key?: boolean;
   expected_host_key_fingerprint?: string | null;
 }
 
