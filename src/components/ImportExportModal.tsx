@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeftRight,
   Download,
@@ -62,20 +63,22 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
 
     setBusy(true);
     try {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const selectedPath = await save({
+        defaultPath: `cd-remote-backup-${dateStr}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!selectedPath) {
+        return;
+      }
+
       const json = await api.exportData({
         include_usernames: includeUsernames,
         include_secrets: includeSecrets,
         export_password: includeSecrets ? exportPassword : undefined,
       });
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const dateStr = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `cd-remote-backup-${dateStr}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setExportMessage(t("portability.export_success"));
+      await api.writeBackupFile(selectedPath, json);
+      setExportMessage(`${t("portability.export_success")} (${selectedPath})`);
       setExportPassword("");
       setExportPasswordConfirm("");
     } catch (err) {
@@ -106,24 +109,28 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    setPreview(null);
-    setNeedsPassword(false);
-    setImportPassword("");
-    setImportResult(null);
+  const handleSelectImportFile = async () => {
     setError(null);
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!selected || typeof selected !== "string") return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setRawJson(reader.result);
-        analyzeImport(reader.result);
-      }
-    };
-    reader.readAsText(file);
+      setFileName(selected);
+      setPreview(null);
+      setNeedsPassword(false);
+      setImportPassword("");
+      setImportResult(null);
+
+      const content = await api.readBackupFile(selected);
+      setRawJson(content);
+      await analyzeImport(content);
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
   const handleCommitImport = async () => {
@@ -286,18 +293,20 @@ export function ImportExportModal({ onClose }: ImportExportModalProps) {
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <label className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleSelectImportFile}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 cursor-pointer shrink-0"
+                >
                   <Upload className="w-4 h-4" />
                   {t("portability.import_select_file")}
-                  <input
-                    type="file"
-                    accept=".json,application/json"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </label>
+                </button>
                 {fileName && (
-                  <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                  <span
+                    title={fileName}
+                    className="text-xs font-mono text-zinc-500 dark:text-zinc-400 truncate"
+                  >
                     {fileName}
                   </span>
                 )}

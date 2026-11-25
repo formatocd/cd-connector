@@ -62,6 +62,19 @@
     "lock_vault": "Bloquear bóveda",
     "help": "Ayuda / Acerca de"
   },
+  "quick_bar": {
+    "toggle_tooltip": "Mostrar/Ocultar barra de conexión rápida",
+    "protocol": "Protocolo:",
+    "host": "Servidor:",
+    "username": "Usuario:",
+    "username_placeholder": "usuario",
+    "password": "Contraseña:",
+    "port": "Puerto:",
+    "history_title": "Conexiones recientes",
+    "history_empty": "Aún no hay conexiones rápidas en el historial.",
+    "clear_history": "Limpiar",
+    "fill_hint": "Haz clic para cargar en la barra y editar"
+  },
   "sidebar": {
     "title": "Sesiones",
     "new_folder": "Nueva carpeta",

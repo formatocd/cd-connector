@@ -83,6 +83,8 @@ pub fn run() {
             commands::config::get_app_config,
             commands::config::update_app_config,
             commands::portability::export_data,
+            commands::portability::write_backup_file,
+            commands::portability::read_backup_file,
             commands::portability::preview_import,
             commands::portability::commit_import,
             commands::portability::inspect_export_bundle,

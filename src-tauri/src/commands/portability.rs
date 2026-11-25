@@ -656,3 +656,22 @@ pub fn setup_from_json(
         unlocked: true,
     })
 }
+
+#[tauri::command]
+pub fn write_backup_file(path: String, content: String) -> AppResult<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Backup file path cannot be empty".into()));
+    }
+    std::fs::write(trimmed, content)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_backup_file(path: String) -> AppResult<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Backup file path cannot be empty".into()));
+    }
+    Ok(std::fs::read_to_string(trimmed)?)
+}

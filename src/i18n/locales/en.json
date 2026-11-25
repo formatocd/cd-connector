@@ -62,6 +62,19 @@
     "lock_vault": "Lock vault",
     "help": "Help / About"
   },
+  "quick_bar": {
+    "toggle_tooltip": "Toggle quick connect bar",
+    "protocol": "Protocol:",
+    "host": "Host:",
+    "username": "Username:",
+    "username_placeholder": "username",
+    "password": "Password:",
+    "port": "Port:",
+    "history_title": "Recent connections",
+    "history_empty": "No quick connections in history yet.",
+    "clear_history": "Clear",
+    "fill_hint": "Click to load into bar and edit"
+  },
   "sidebar": {
     "title": "Sessions",
     "new_folder": "New folder",

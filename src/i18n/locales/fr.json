@@ -62,6 +62,19 @@
     "lock_vault": "Verrouiller le coffre-fort",
     "help": "Aide / À propos"
   },
+  "quick_bar": {
+    "toggle_tooltip": "Afficher/Masquer la barre de connexion rapide",
+    "protocol": "Protocole :",
+    "host": "Hôte :",
+    "username": "Identifiant :",
+    "username_placeholder": "utilisateur",
+    "password": "Mot de passe :",
+    "port": "Port :",
+    "history_title": "Connexions récentes",
+    "history_empty": "Aucune connexion rapide dans l'historique.",
+    "clear_history": "Effacer",
+    "fill_hint": "Cliquer pour charger dans la barre et modifier"
+  },
   "sidebar": {
     "title": "Sessions",
     "new_folder": "Nouveau dossier",

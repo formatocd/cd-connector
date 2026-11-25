@@ -62,6 +62,19 @@
     "lock_vault": "Tresor sperren",
     "help": "Hilfe / Über"
   },
+  "quick_bar": {
+    "toggle_tooltip": "Schnellverbindungsleiste umschalten",
+    "protocol": "Protokoll:",
+    "host": "Server:",
+    "username": "Benutzername:",
+    "username_placeholder": "Benutzername",
+    "password": "Passwort:",
+    "port": "Port:",
+    "history_title": "Letzte Verbindungen",
+    "history_empty": "Noch keine Schnellverbindungen im Verlauf.",
+    "clear_history": "Leeren",
+    "fill_hint": "Klicken, um in die Leiste zu laden und zu bearbeiten"
+  },
   "sidebar": {
     "title": "Sitzungen",
     "new_folder": "Neuer Ordner",

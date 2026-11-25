@@ -15,6 +15,7 @@ import {
   FolderTree,
   HelpCircle,
   Square,
+  Zap,
 } from "lucide-react";
 import { api } from "./services/tauri";
 import { useAppStore } from "./store/useAppStore";
@@ -30,6 +31,10 @@ import { SshTerminalWorkspace } from "./components/SshTerminalWorkspace";
 import { ConflictModal } from "./components/ConflictModal";
 import { HomePage } from "./components/HomePage";
 import { AboutModal } from "./components/AboutModal";
+import {
+  QuickConnectBar,
+  type QuickConnectPreset,
+} from "./components/QuickConnectBar";
 import { resolveIconColor } from "./components/IconColorPicker";
 import { TerminalSolidIcon } from "./components/TerminalSolidIcon";
 import type {
@@ -71,12 +76,40 @@ export function App() {
   const [showImportExport, setShowImportExport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showQuickConnect, setShowQuickConnect] = useState(() => {
+    try {
+      return localStorage.getItem("cd-remote-show-quick-bar") !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [quickPreset, setQuickPreset] = useState<QuickConnectPreset | null>(null);
   const [sessionModal, setSessionModal] = useState<{
     mode: "create" | "edit" | "duplicate" | "quick";
     sessionKind: SessionKind;
     folderId?: string | null;
     session?: Session | null;
   } | null>(null);
+
+  const toggleQuickConnectBar = () => {
+    setShowQuickConnect((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("cd-remote-show-quick-bar", String(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const focusedTabId =
+    splitDirection !== "none" && focusedPane === 2 && secondaryTabId
+      ? secondaryTabId
+      : activeTabId;
+  const focusedTab = tabs.find((tab) => tab.tabId === focusedTabId) ?? null;
+  const isTransferTabActive =
+    focusedTab !== null && focusedTab.session.protocol !== "ssh";
 
   // Tab drag-to-reorder state (pointer-event based for WebView2 compatibility)
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
@@ -210,13 +243,13 @@ export function App() {
       if (key === "b") {
         e.preventDefault();
         updateConfig({ ui_show_sidebar: !config.ui_show_sidebar });
-      } else if (key === "1") {
+      } else if (isTransferTabActive && key === "1") {
         e.preventDefault();
         updateConfig({ ui_show_local_panel: !config.ui_show_local_panel });
-      } else if (key === "2") {
+      } else if (isTransferTabActive && key === "2") {
         e.preventDefault();
         updateConfig({ ui_show_command_panel: !config.ui_show_command_panel });
-      } else if (key === "3") {
+      } else if (isTransferTabActive && key === "3") {
         e.preventDefault();
         updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel });
       }
@@ -224,6 +257,7 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    isTransferTabActive,
     config.ui_show_sidebar,
     config.ui_show_local_panel,
     config.ui_show_command_panel,
@@ -288,71 +322,69 @@ export function App() {
 
           <button
             type="button"
-            onClick={() => setSessionModal({ mode: "quick", sessionKind: "ssh" })}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors cursor-pointer"
+            title={t("quick_bar.toggle_tooltip")}
+            onClick={toggleQuickConnectBar}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              showQuickConnect
+                ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300"
+                : "hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+            }`}
           >
-            <TerminalSolidIcon className="w-3.5 h-3.5" />
-            {t("toolbar.quick_ssh")}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSessionModal({ mode: "quick", sessionKind: "transfer" })}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer"
-          >
-            <FolderTree className="w-3.5 h-3.5" />
-            {t("toolbar.quick_transfer")}
+            <Zap className="w-3.5 h-3.5" />
+            {t("toolbar.quick_connect")}
           </button>
         </div>
 
-        {/* Panel Visibility Toggles (RF-11) */}
-        <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/70 p-0.5 rounded-lg">
-          <button
-            type="button"
-            title={t("toolbar.toggle_local")}
-            onClick={() =>
-              updateConfig({ ui_show_local_panel: !config.ui_show_local_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_local_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <Columns2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_local")}</span>
-          </button>
-          <button
-            type="button"
-            title={t("toolbar.toggle_console")}
-            onClick={() =>
-              updateConfig({ ui_show_command_panel: !config.ui_show_command_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_command_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <TerminalSolidIcon className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_console")}</span>
-          </button>
-          <button
-            type="button"
-            title={t("toolbar.toggle_queue")}
-            onClick={() =>
-              updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel })
-            }
-            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-              config.ui_show_queue_panel
-                ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
-                : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-            }`}
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("toolbar.toggle_queue")}</span>
-          </button>
-        </div>
+        {/* Panel Visibility Toggles (RF-11) — only shown when active tab is a transfer session */}
+        {isTransferTabActive && (
+          <div className="flex items-center gap-1 bg-zinc-200/70 dark:bg-zinc-800/70 p-0.5 rounded-lg">
+            <button
+              type="button"
+              title={t("toolbar.toggle_local")}
+              onClick={() =>
+                updateConfig({ ui_show_local_panel: !config.ui_show_local_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_local_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <Columns2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_local")}</span>
+            </button>
+            <button
+              type="button"
+              title={t("toolbar.toggle_console")}
+              onClick={() =>
+                updateConfig({ ui_show_command_panel: !config.ui_show_command_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_command_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <TerminalSolidIcon className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_console")}</span>
+            </button>
+            <button
+              type="button"
+              title={t("toolbar.toggle_queue")}
+              onClick={() =>
+                updateConfig({ ui_show_queue_panel: !config.ui_show_queue_panel })
+              }
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
+                config.ui_show_queue_panel
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              }`}
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{t("toolbar.toggle_queue")}</span>
+            </button>
+          </div>
+        )}
 
         {/* Right Actions */}
         <div className="flex items-center gap-1">
@@ -400,6 +432,9 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {/* Quick Connect Bar (FileZilla-style) */}
+      {showQuickConnect && <QuickConnectBar preset={quickPreset} />}
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 flex">
@@ -571,9 +606,18 @@ export function App() {
           {/* Workspace Body */}
           {tabs.length === 0 ? (
             <HomePage
-              onQuickConnect={(sessionKind) =>
-                setSessionModal({ mode: "quick", sessionKind })
-              }
+              onQuickConnect={(sessionKind) => {
+                setShowQuickConnect(true);
+                try {
+                  localStorage.setItem("cd-remote-show-quick-bar", "true");
+                } catch {
+                  // Ignore storage errors
+                }
+                setQuickPreset({
+                  protocol: sessionKind === "ssh" ? "ssh" : "sftp",
+                  nonce: Date.now(),
+                });
+              }}
             />
           ) : (
             <div
