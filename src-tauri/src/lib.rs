@@ -48,13 +48,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to resolve app data directory");
+            let app_data_dir = app.path().app_data_dir()?;
             let db_path = app_data_dir.join("cd-remote.db");
             migrate_legacy_data_if_needed(&app_data_dir, &db_path);
-            let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
+            let conn = db::init_db(&db_path)?;
             let initial_config = db::load_app_config(&conn).unwrap_or_default();
 
             app.manage(AppState::new(conn, app_data_dir, &initial_config));

@@ -26,7 +26,7 @@ interface ImportExportModalProps {
 
 export function ImportExportModal({ onClose }: ImportExportModalProps) {
   const { t } = useTranslation();
-  const { refreshVaultData } = useAppStore();
+  const refreshVaultData = useAppStore((s) => s.refreshVaultData);
 
   const [tab, setTab] = useState<"export" | "import">("export");
   const [includeUsernames, setIncludeUsernames] = useState(true);

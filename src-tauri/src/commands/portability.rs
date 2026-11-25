@@ -18,11 +18,8 @@ use crate::state::AppState;
 #[tauri::command]
 pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppResult<String> {
     let local_key = state.get_master_key()?;
-    let conn = state
-        .db
-        .lock()
-        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
+    // Perform Argon2id key derivation outside the SQLite mutex
     let encrypted = options.include_secrets;
     let (export_key, salt_b64, verification_token) = if encrypted {
         let pwd = options.export_password.unwrap_or_default();
@@ -38,6 +35,11 @@ pub fn export_data(state: State<'_, AppState>, options: ExportOptions) -> AppRes
     } else {
         (None, None, None)
     };
+
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| AppError::Crypto("DB lock poisoned".into()))?;
 
     let folders = db::list_folders(&conn)?
         .into_iter()

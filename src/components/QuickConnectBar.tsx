@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BookmarkPlus, ChevronDown, Clock, Play, Trash2, X, Zap } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
+import {
+  defaultPortForProtocol,
+  isProtocol,
+  protocolLabel,
+} from "../utils/protocols";
+import { readStorageJson, writeStorageItem } from "../utils/storage";
 import type { Protocol, Session } from "../types";
 
 export interface QuickConnectHistoryItem {
@@ -16,61 +22,27 @@ export interface QuickConnectHistoryItem {
 const HISTORY_STORAGE_KEY = "cd-remote-quick-connect-history";
 const MAX_HISTORY_ITEMS = 15;
 
-function defaultPortForProtocol(protocol: Protocol): number {
-  switch (protocol) {
-    case "ftp":
-    case "ftps_explicit":
-      return 21;
-    case "ftps_implicit":
-      return 990;
-    case "sftp":
-    case "ssh":
-    default:
-      return 22;
-  }
-}
-
-function protocolLabel(protocol: Protocol): string {
-  switch (protocol) {
-    case "sftp":
-      return "SFTP";
-    case "ftp":
-      return "FTP";
-    case "ftps_explicit":
-      return "FTPS";
-    case "ftps_implicit":
-      return "FTPS (Imp)";
-    case "ssh":
-      return "SSH";
-  }
-}
-
 function loadHistory(): QuickConnectHistoryItem[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is QuickConnectHistoryItem =>
-        item &&
-        typeof item.id === "string" &&
-        typeof item.protocol === "string" &&
-        typeof item.host === "string" &&
-        typeof item.port === "number" &&
-        typeof item.username === "string"
-    );
-  } catch {
-    return [];
-  }
+  const parsed = readStorageJson<unknown>(HISTORY_STORAGE_KEY, []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (item): item is QuickConnectHistoryItem =>
+      !!item &&
+      typeof item === "object" &&
+      typeof (item as QuickConnectHistoryItem).id === "string" &&
+      isProtocol((item as QuickConnectHistoryItem).protocol) &&
+      typeof (item as QuickConnectHistoryItem).host === "string" &&
+      typeof (item as QuickConnectHistoryItem).port === "number" &&
+      Number.isInteger((item as QuickConnectHistoryItem).port) &&
+      (item as QuickConnectHistoryItem).port >= 1 &&
+      (item as QuickConnectHistoryItem).port <= 65535 &&
+      typeof (item as QuickConnectHistoryItem).username === "string" &&
+      typeof (item as QuickConnectHistoryItem).lastUsedAt === "string"
+  );
 }
 
 function saveHistory(items: QuickConnectHistoryItem[]) {
-  try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // Ignore storage quota errors
-  }
+  writeStorageItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
 }
 
 export interface QuickConnectPreset {
@@ -93,7 +65,7 @@ interface QuickConnectBarProps {
 
 export function QuickConnectBar({ preset, onSaveToTree }: QuickConnectBarProps) {
   const { t } = useTranslation();
-  const { openSessionTab } = useAppStore();
+  const openSessionTab = useAppStore((s) => s.openSessionTab);
 
   const [protocol, setProtocol] = useState<Protocol>("sftp");
   const [host, setHost] = useState("");
